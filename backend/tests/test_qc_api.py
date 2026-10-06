@@ -132,3 +132,19 @@ def test_synthetic_benchmark_endpoint(client):
     synth_data = synth_res.json()
     assert synth_data['predictions_generated'] > 0
     assert 'audit_summary' in synth_data
+
+def test_detect_endpoint(client):
+    data = [
+        {"name": "frame_c.jpg", "labels": [{"category": "car", "box2d": {"x1": 50, "y1": 50, "x2": 150, "y2": 150}}]}
+    ]
+    res = client.post(
+        '/api/datasets/upload',
+        data={'name': 'Detect-Test', 'format': 'BDD100K', 'task_type': 'BBOX_2D'},
+        files=[('annotations', ('labels.json', io.BytesIO(json.dumps(data).encode()), 'application/json'))]
+    )
+    dataset_id = res.json()['id']
+    detect_res = client.post(f'/api/datasets/{dataset_id}/qc/detect')
+    assert detect_res.status_code == 200
+    assert 'predictions_generated' in detect_res.json()
+    assert 'audit_summary' in detect_res.json()
+

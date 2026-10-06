@@ -15,7 +15,7 @@ from app.models import Dataset,Sample,Annotation,Prediction,QCIssue,Settings,Sam
 from app.schemas import ScoringSettings,SamplingRequest,ReviewerRequest,ReviewRequest
 from app.schemas.qc import QCConfig, IngestPredictionsRequest, QCIssueResolveRequest, QCAuditReport
 from app.services.pipeline import get_settings,store_files,import_dataset,analyze_dataset,sample_dict,dataset_dict,choose_samples,balance
-from app.services.qc_engine import run_dataset_qc_audit, ingest_predictions_data, generate_benchmark_synthetic_predictions, compute_sample_qc_score
+from app.services.qc_engine import run_dataset_qc_audit, ingest_predictions_data, generate_benchmark_synthetic_predictions, compute_sample_qc_score, run_pretrained_detector_service
 
 router = APIRouter(prefix='/api')
 
@@ -318,13 +318,22 @@ def run_synthetic_benchmark(
     except Exception as e:
         raise HTTPException(500, f"Synthetic benchmark failed: {str(e)}")
 
+@router.post('/datasets/{id}/qc/detect')
+def run_model_detector(id: int, db: Session = Depends(get_db)):
+    require(db, Dataset, id)
+    try:
+        result = run_pretrained_detector_service(db, id)
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"Model detection failed: {str(e)}")
+
 @router.get('/datasets/{id}/qc/queue')
-def get_qc_queue(id: int, db: Session = Depends(get_db)):
+def get_qc_queue(id: int, include_clean: bool = False, db: Session = Depends(get_db)):
     dataset = require(db, Dataset, id)
     samples = []
     for s in dataset.samples:
         d = sample_dict(s, details=True)
-        if d['qc_issue_count'] > 0:
+        if include_clean or d['qc_issue_count'] > 0:
             samples.append(d)
     # Sort prioritized queue by qc_score descending
     samples.sort(key=lambda x: (-x['qc_score'], x['id']))

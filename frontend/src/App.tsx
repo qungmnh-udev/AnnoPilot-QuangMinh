@@ -22,6 +22,7 @@ import {
   RotateCcw,
   Plus,
   Search,
+  ShieldAlert,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -49,10 +50,12 @@ import {
 } from "./components/DatasetRequiredRoute";
 import { HomePage } from "./components/HomePage";
 import { AppearanceSettings } from "./components/AppearanceSettings";
+import { ModelQCPage } from "./components/ModelQCPage";
 
 const nav = [
   ["Home", House],
   ["Dashboard", LayoutDashboard],
+  ["Model QC", ShieldAlert],
   ["Dataset", Database],
   ["Difficulty", ChartNoAxesCombined],
   ["Smart Sampling", Shuffle],
@@ -974,6 +977,16 @@ export default function App() {
                       <SampleTable rows={queue} onOpen={open} review />
                     </section>
                   </>
+                )}
+                {dataset && page === "Model QC" && (
+                  <ModelQCPage
+                    dataset={dataset}
+                    busy={!!busy}
+                    act={act}
+                    onRefreshDataset={async () => {
+                      await load();
+                    }}
+                  />
                 )}
                 {dataset && page === "Dataset" && (
                   <div className="footer-actions">

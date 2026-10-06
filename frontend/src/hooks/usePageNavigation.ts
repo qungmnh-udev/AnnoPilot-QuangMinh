@@ -8,6 +8,7 @@ export const pagePaths = {
   "Smart Sampling": "/smart-sampling",
   Workload: "/workload",
   "Review Queue": "/review-queue",
+  "Model QC": "/model-qc",
   Settings: "/settings",
 } as const;
 export type Page = keyof typeof pagePaths;

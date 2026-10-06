@@ -7,11 +7,17 @@ import {
   ListChecks,
   Eye,
   Database,
+  ShieldAlert,
 } from "lucide-react";
 import type { Dataset } from "../types";
 import type { DatasetStatus } from "./DatasetRequiredRoute";
 
 const modules = [
+  [
+    ShieldAlert,
+    "Model-Assisted QC (N2-04D)",
+    "Bắt vật thể bị sót và sai class bằng Pretrained Detector.",
+  ],
   [
     ChartNoAxesCombined,
     "Difficulty Analysis",

@@ -20,6 +20,14 @@ def client():
     with TestClient(app) as client:
         yield client
 
+@pytest.fixture
+def db_session():
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    from app.database import SessionLocal
+    with SessionLocal() as session:
+        yield session
+
 def pytest_sessionfinish(session,exitstatus):
     import shutil
     engine.dispose()

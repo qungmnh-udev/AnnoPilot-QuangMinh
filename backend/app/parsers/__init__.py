@@ -183,13 +183,55 @@ class KITTIParser(BaseAnnotationParser):
             results.append(s)
         return results
 
-PARSERS = {'CVAT': CVATParser, 'COCO': COCOParser, 'YOLO': YOLOParser, 'KITTI': KITTIParser}
+class BDD100KParser(BaseAnnotationParser):
+    def parse(self, paths, media):
+        results = []
+        for path in paths:
+            data = json.loads(path.read_text(encoding='utf-8-sig'), parse_constant=reject_json_constant)
+            items = data if isinstance(data, list) else data.get('frames', data.get('images', []))
+            for item in items:
+                fname = item.get('name') or item.get('file_name')
+                if not fname:
+                    continue
+                w = item.get('width', 1280)
+                h = item.get('height', 720)
+                s = sample(fname, w, h)
+                for label_obj in item.get('labels', []):
+                    cat = label_obj.get('category') or label_obj.get('label')
+                    if not cat:
+                        continue
+                    box2d = label_obj.get('box2d')
+                    if box2d:
+                        try:
+                            g = dict(
+                                x1=float(box2d['x1']),
+                                y1=float(box2d['y1']),
+                                x2=float(box2d['x2']),
+                                y2=float(box2d['y2'])
+                            )
+                            attrs = label_obj.get('attributes', {})
+                            occ = attrs.get('occluded', False) if isinstance(attrs, dict) else False
+                            self.add(s, cat, 'BBOX_2D', g, attributes=attrs if isinstance(attrs, dict) else {}, occluded=bool(occ), metadata=label_obj)
+                        except (ValueError, KeyError):
+                            self.warnings.append(f"{fname}: skipped malformed BDD100K box2d")
+                results.append(s)
+        return results
+
+PARSERS = {'CVAT': CVATParser, 'COCO': COCOParser, 'BDD100K': BDD100KParser, 'YOLO': YOLOParser, 'KITTI': KITTIParser}
 
 def detect_format(paths):
     suffixes = {p.suffix.lower() for p in paths}
     if '.xml' in suffixes:
         return 'CVAT'
     if '.json' in suffixes:
+        for p in paths:
+            if p.suffix.lower() == '.json':
+                try:
+                    head = p.read_text(encoding='utf-8-sig')[:4000]
+                    if '"box2d"' in head or ('"labels"' in head and '"category"' in head):
+                        return 'BDD100K'
+                except Exception:
+                    pass
         return 'COCO'
     for p in paths:
         if p.suffix.lower() == '.txt' and p.name != 'classes.txt':

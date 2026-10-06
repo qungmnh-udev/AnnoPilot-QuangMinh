@@ -93,7 +93,7 @@ def import_dataset(db,name,requested_format,requested_task,annotation_paths,medi
     fmt = detect_format(annotation_paths) if requested_format=='AUTO' else requested_format
     if fmt not in PARSERS:
         raise ValueError('Unsupported annotation format')
-    suffix = {'CVAT':'.xml','COCO':'.json','YOLO':'.txt','KITTI':'.txt'}[fmt]
+    suffix = {'CVAT':'.xml','COCO':'.json','BDD100K':'.json','YOLO':'.txt','KITTI':'.txt'}[fmt]
     paths = [p for p in annotation_paths if p.suffix.lower()==suffix]
     if not paths:
         raise ValueError('No annotation files found for '+fmt)
@@ -142,10 +142,21 @@ def import_dataset(db,name,requested_format,requested_task,annotation_paths,medi
 
 def sample_dict(s,details=False):
     a = s.analysis
-    result = dict(id=s.id,file_name=s.file_name,task_type=s.task_type,width=s.width,height=s.height,annotation_count=len(s.annotations),media_url=f'/api/samples/{s.id}/media' if s.media_path else None,media_kind=Path(s.media_path).suffix.lower() if s.media_path else None,annotation_difficulty=a.annotation_difficulty if a else None,visual_difficulty=a.visual_difficulty if a else None,overall_difficulty=a.overall_difficulty if a else None,level=a.level if a else 'UNAVAILABLE',rare_classes=a.details.get('rare_classes',[]) if a else [])
+    qc_issues = getattr(s, 'qc_issues', [])
+    qc_score, qc_severity = 0.0, 'CLEAN'
+    if qc_issues:
+        scores = [i.qc_score for i in qc_issues]
+        max_score = max(scores) if scores else 0.0
+        boost = 0.04 * min(len(scores)-1, 5) if len(scores)>1 else 0.0
+        qc_score = min(1.0, round(max_score + boost, 4))
+        qc_severity = 'HIGH' if qc_score >= 0.70 else ('MEDIUM' if qc_score >= 0.45 else 'LOW')
+    preds = getattr(s, 'predictions', [])
+    result = dict(id=s.id,file_name=s.file_name,task_type=s.task_type,width=s.width,height=s.height,annotation_count=len(s.annotations),prediction_count=len(preds),qc_score=qc_score,qc_severity=qc_severity,qc_issue_count=len(qc_issues),media_url=f'/api/samples/{s.id}/media' if s.media_path else None,media_kind=Path(s.media_path).suffix.lower() if s.media_path else None,annotation_difficulty=a.annotation_difficulty if a else None,visual_difficulty=a.visual_difficulty if a else None,overall_difficulty=a.overall_difficulty if a else None,level=a.level if a else 'UNAVAILABLE',rare_classes=a.details.get('rare_classes',[]) if a else [])
     if details:
         result['analysis'] = a.details if a else None
         result['annotations'] = [dict(id=x.id,label=x.label,shape_type=x.shape_type,geometry=x.geometry,attributes=x.attributes,occluded=x.occluded,metadata=x.source_metadata) for x in s.annotations]
+        result['predictions'] = [dict(id=p.id,label=p.label,geometry=p.geometry,confidence=p.confidence,source_model=p.source_model) for p in preds]
+        result['qc_issues'] = [dict(id=i.id,issue_type=i.issue_type,location=i.location,human_label=i.human_label,suggested_label=i.suggested_label,annotation_id=i.annotation_id,prediction_id=i.prediction_id,qc_score=i.qc_score,evidence=i.evidence,status=i.status,reviewer_note=i.reviewer_note) for i in qc_issues]
     return result
 
 def dataset_dict(dataset):

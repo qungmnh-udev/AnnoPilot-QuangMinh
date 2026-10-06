@@ -11,9 +11,11 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.database import get_db, UPLOADS, EXPORTS
-from app.models import Dataset,Sample,Settings,SamplingRun,SampleSelection,Reviewer,ReviewAssignment
+from app.models import Dataset,Sample,Annotation,Prediction,QCIssue,Settings,SamplingRun,SampleSelection,Reviewer,ReviewAssignment
 from app.schemas import ScoringSettings,SamplingRequest,ReviewerRequest,ReviewRequest
+from app.schemas.qc import QCConfig, IngestPredictionsRequest, QCIssueResolveRequest, QCAuditReport
 from app.services.pipeline import get_settings,store_files,import_dataset,analyze_dataset,sample_dict,dataset_dict,choose_samples,balance
+from app.services.qc_engine import run_dataset_qc_audit, ingest_predictions_data, generate_benchmark_synthetic_predictions, compute_sample_qc_score
 
 router = APIRouter(prefix='/api')
 
@@ -240,3 +242,134 @@ def export(id:int,kind:str,db:Session=Depends(get_db)):
     payload=output.getvalue().encode('utf-8-sig')
     (EXPORTS/f'{id}_{kind}.csv').write_bytes(payload)
     return Response(payload,media_type='text/csv',headers={'Content-Disposition':f'attachment; filename="{kind}.csv"'})
+
+# --- Model-Assisted QC Endpoints (N2-04D) ---
+
+@router.post('/datasets/{id}/qc/audit')
+def trigger_qc_audit(id: int, config: Optional[QCConfig] = None, db: Session = Depends(get_db)):
+    require(db, Dataset, id)
+    try:
+        report = run_dataset_qc_audit(db, id, config)
+        return report
+    except Exception as e:
+        raise HTTPException(500, f"QC Audit failed: {str(e)}")
+
+@router.get('/datasets/{id}/qc/report')
+def get_qc_report(id: int, db: Session = Depends(get_db)):
+    require(db, Dataset, id)
+    report = run_dataset_qc_audit(db, id)
+    return report
+
+@router.post('/datasets/{id}/qc/predictions')
+def ingest_predictions_json(
+    id: int,
+    payload: IngestPredictionsRequest,
+    db: Session = Depends(get_db)
+):
+    require(db, Dataset, id)
+    data = [p.model_dump() for p in payload.predictions]
+    count = ingest_predictions_data(db, id, data, payload.source_model or 'pretrained')
+    audit_report = run_dataset_qc_audit(db, id)
+    return {
+        'message': f'Successfully ingested {count} predictions',
+        'predictions_count': count,
+        'audit_summary': audit_report
+    }
+
+@router.post('/datasets/{id}/qc/predictions/upload')
+async def upload_predictions_file(
+    id: int,
+    file: UploadFile = File(...),
+    source_model: str = Form('yolov8-bdd100k'),
+    db: Session = Depends(get_db)
+):
+    require(db, Dataset, id)
+    import json
+    content = await file.read()
+    try:
+        data = json.loads(content.decode('utf-8-sig'))
+        if isinstance(data, dict):
+            data = data.get('frames', data.get('images', [data]))
+    except Exception as e:
+        raise HTTPException(422, f"Failed to parse predictions JSON: {str(e)}")
+
+    count = ingest_predictions_data(db, id, data, source_model)
+    audit_report = run_dataset_qc_audit(db, id)
+    return {
+        'message': f'Successfully ingested {count} predictions',
+        'predictions_count': count,
+        'audit_summary': audit_report
+    }
+
+@router.post('/datasets/{id}/qc/synthetic-benchmark')
+def run_synthetic_benchmark(
+    id: int,
+    missing_ratio: float = 0.15,
+    wrong_class_ratio: float = 0.15,
+    source_model: str = "synthetic_detector_v1",
+    db: Session = Depends(get_db)
+):
+    require(db, Dataset, id)
+    try:
+        result = generate_benchmark_synthetic_predictions(
+            db, id, missing_ratio, wrong_class_ratio, source_model
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"Synthetic benchmark failed: {str(e)}")
+
+@router.get('/datasets/{id}/qc/queue')
+def get_qc_queue(id: int, db: Session = Depends(get_db)):
+    dataset = require(db, Dataset, id)
+    samples = []
+    for s in dataset.samples:
+        d = sample_dict(s, details=True)
+        if d['qc_issue_count'] > 0:
+            samples.append(d)
+    # Sort prioritized queue by qc_score descending
+    samples.sort(key=lambda x: (-x['qc_score'], x['id']))
+    return samples
+
+@router.put('/qc/issues/{issue_id}')
+def resolve_qc_issue(issue_id: int, body: QCIssueResolveRequest, db: Session = Depends(get_db)):
+    issue = db.get(QCIssue, issue_id)
+    if not issue:
+        raise HTTPException(404, "QC Issue not found")
+
+    sample = require(db, Sample, issue.sample_id)
+    if body.status == 'ACCEPTED':
+        if issue.issue_type == 'MISSING_OBJECT':
+            # Create new annotation for the missing object!
+            new_annotation = Annotation(
+                sample_id=sample.id,
+                label=issue.suggested_label,
+                shape_type='BBOX_2D',
+                geometry=issue.location,
+                attributes={'qc_verified': True, 'resolved_from_issue_id': issue.id},
+                occluded=False,
+                source_metadata={'origin': 'model_assisted_qc'}
+            )
+            db.add(new_annotation)
+        elif issue.issue_type == 'WRONG_CLASS':
+            # Update existing annotation label!
+            if issue.annotation_id:
+                ann = db.get(Annotation, issue.annotation_id)
+                if ann:
+                    ann.label = issue.suggested_label
+                    if ann.attributes is None:
+                        ann.attributes = {}
+                    ann.attributes['qc_verified'] = True
+                    ann.attributes['previous_label'] = issue.human_label
+
+    issue.status = body.status
+    issue.reviewer_note = body.reviewer_note or ''
+    db.commit()
+
+    return {
+        'id': issue.id,
+        'status': issue.status,
+        'reviewer_note': issue.reviewer_note,
+        'issue_type': issue.issue_type,
+        'suggested_label': issue.suggested_label
+    }
+

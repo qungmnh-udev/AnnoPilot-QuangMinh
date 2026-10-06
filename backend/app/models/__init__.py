@@ -28,6 +28,8 @@ class Sample(Base):
     task_type = Column(String, nullable=False)
     annotations = relationship('Annotation', cascade='all, delete-orphan')
     analysis = relationship('AnalysisResult', uselist=False, cascade='all, delete-orphan')
+    predictions = relationship('Prediction', cascade='all, delete-orphan')
+    qc_issues = relationship('QCIssue', cascade='all, delete-orphan')
 
 class Annotation(Base):
     __tablename__ = 'annotations'
@@ -86,3 +88,28 @@ class Settings(Base):
     __tablename__ = 'settings'
     id = Column(Integer, primary_key=True, default=1)
     config = Column(JSON, nullable=False)
+
+class Prediction(Base):
+    __tablename__ = 'predictions'
+    id = Column(Integer, primary_key=True)
+    sample_id = Column(Integer, ForeignKey('samples.id'), nullable=False)
+    label = Column(String, nullable=False)
+    geometry = Column(JSON, nullable=False)
+    confidence = Column(Float, nullable=False)
+    source_model = Column(String, default='pretrained')
+
+class QCIssue(Base):
+    __tablename__ = 'qc_issues'
+    id = Column(Integer, primary_key=True)
+    sample_id = Column(Integer, ForeignKey('samples.id'), nullable=False)
+    issue_type = Column(String, nullable=False)  # 'MISSING_OBJECT' | 'WRONG_CLASS'
+    location = Column(JSON, nullable=False)
+    human_label = Column(String, nullable=True)
+    suggested_label = Column(String, nullable=False)
+    annotation_id = Column(Integer, ForeignKey('annotations.id'), nullable=True)
+    prediction_id = Column(Integer, ForeignKey('predictions.id'), nullable=True)
+    qc_score = Column(Float, nullable=False)
+    evidence = Column(JSON, default=dict)
+    status = Column(String, default='PENDING', nullable=False)
+    reviewer_note = Column(String, default='', nullable=False)
+

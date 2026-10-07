@@ -256,37 +256,49 @@ def run_dataset_qc_audit(db: Session, dataset_id: int, config: Optional[QCConfig
     sample_summaries = []
 
     for sample in dataset.samples:
-        # Delete existing pending issues for re-audit (preserve already accepted/rejected if any)
-        existing_resolved = {
-            (issue.issue_type, issue.suggested_label, issue.annotation_id, issue.prediction_id): (issue.status, issue.reviewer_note)
-            for issue in sample.qc_issues if issue.status != 'PENDING'
+        existing_map = {
+            (issue.issue_type, issue.suggested_label, issue.annotation_id, issue.prediction_id): issue
+            for issue in sample.qc_issues
         }
-
-        # Clear existing issues for sample
-        db.execute(delete(QCIssue).where(QCIssue.sample_id == sample.id))
 
         raw_issues = detect_sample_qc_issues(sample.id, sample.annotations, sample.predictions, cfg)
 
-        created_issues = []
+        current_keys = set()
+        active_issues = []
         for raw in raw_issues:
             key = (raw['issue_type'], raw['suggested_label'], raw['annotation_id'], raw['prediction_id'])
-            if key in existing_resolved:
-                raw['status'], raw['reviewer_note'] = existing_resolved[key]
+            current_keys.add(key)
+            if key in existing_map:
+                existing = existing_map[key]
+                existing.location = raw['location']
+                existing.human_label = raw['human_label']
+                existing.qc_score = raw['qc_score']
+                existing.evidence = raw['evidence']
+                active_issues.append(existing)
+            else:
+                db_issue = QCIssue(**raw)
+                db.add(db_issue)
+                sample.qc_issues.append(db_issue)
+                active_issues.append(db_issue)
 
-            db_issue = QCIssue(**raw)
-            db.add(db_issue)
-            created_issues.append(db_issue)
             if raw['issue_type'] == 'MISSING_OBJECT':
                 total_missing += 1
             elif raw['issue_type'] == 'WRONG_CLASS':
                 total_wrong += 1
 
+        # Delete only unreviewed pending issues that are no longer detected
+        for key, existing in list(existing_map.items()):
+            if key not in current_keys and existing.status == 'PENDING':
+                db.delete(existing)
+                if existing in sample.qc_issues:
+                    sample.qc_issues.remove(existing)
+
         db.flush()
 
-        sample_score, severity = compute_sample_qc_score(created_issues)
+        sample_score, severity = compute_sample_qc_score(active_issues)
         severity_breakdown[severity] += 1
 
-        if created_issues:
+        if active_issues:
             flagged_samples += 1
 
         sample_summaries.append({
@@ -294,9 +306,9 @@ def run_dataset_qc_audit(db: Session, dataset_id: int, config: Optional[QCConfig
             'file_name': sample.file_name,
             'qc_score': sample_score,
             'severity': severity,
-            'missing_count': sum(1 for i in created_issues if i.issue_type == 'MISSING_OBJECT'),
-            'wrong_class_count': sum(1 for i in created_issues if i.issue_type == 'WRONG_CLASS'),
-            'total_issues': len(created_issues),
+            'missing_count': sum(1 for i in active_issues if i.issue_type == 'MISSING_OBJECT'),
+            'wrong_class_count': sum(1 for i in active_issues if i.issue_type == 'WRONG_CLASS'),
+            'total_issues': len(active_issues),
             'issues': [
                 {
                     'id': i.id,
@@ -312,11 +324,12 @@ def run_dataset_qc_audit(db: Session, dataset_id: int, config: Optional[QCConfig
                     'status': i.status,
                     'reviewer_note': i.reviewer_note
                 }
-                for i in created_issues
+                for i in active_issues
             ]
         })
 
     db.commit()
+    db.expire_all()
 
     # Sort samples by qc_score descending to create the prioritized review queue
     sample_summaries.sort(key=lambda s: (-s['qc_score'], s['sample_id']))
@@ -432,10 +445,12 @@ def generate_benchmark_synthetic_predictions(
 
     swap_candidates = {
         'car': 'truck',
+        'vehicle': 'truck',
         'truck': 'bus',
         'bus': 'truck',
         'pedestrian': 'rider',
         'rider': 'pedestrian',
+        'motorcyclist': 'pedestrian',
         'bicycle': 'motorcycle',
         'motorcycle': 'bicycle',
         'traffic light': 'traffic sign',

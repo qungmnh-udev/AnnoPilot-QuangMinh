@@ -47,16 +47,48 @@ def reject_json_constant(value):
     raise ValueError('Non-finite JSON number: '+value)
 
 class CVATParser(BaseAnnotationParser):
+    def __init__(self):
+        super().__init__()
+        self.cvat_task_id = None
+        self.cvat_job_id = None
+
     def parse(self, paths, media):
+        import re
         results = []
         for path in paths:
             root = ET.parse(path).getroot()
             if root.tag != 'annotations':
                 raise ValueError('Expected CVAT annotations root')
-            if root.findall('track'):
-                self.warnings.append('CVAT video tracks are not supported; export CVAT images XML.')
+
+            meta = root.find('meta')
+            orig_w, orig_h = None, None
+            if meta is not None:
+                task = meta.find('task')
+                if task is not None:
+                    try:
+                        t_id = task.findtext('id')
+                        if t_id and t_id.strip().isdigit():
+                            self.cvat_task_id = int(t_id.strip())
+                    except (ValueError, TypeError):
+                        pass
+                segment = meta.find('.//segment')
+                if segment is not None:
+                    try:
+                        s_id = segment.findtext('id')
+                        if s_id and s_id.strip().isdigit():
+                            self.cvat_job_id = int(s_id.strip())
+                    except (ValueError, TypeError):
+                        pass
+                orig_size = meta.find('.//original_size')
+                if orig_size is not None:
+                    try:
+                        orig_w = int(orig_size.findtext('width') or 0) or None
+                        orig_h = int(orig_size.findtext('height') or 0) or None
+                    except (ValueError, TypeError):
+                        pass
+
             for image in root.findall('image'):
-                s = sample(image.get('name', str(image.get('id'))), int(image.get('width', 0)) or None, int(image.get('height', 0)) or None)
+                s = sample(image.get('name', str(image.get('id'))), int(image.get('width', 0)) or orig_w, int(image.get('height', 0)) or orig_h)
                 for shape in image:
                     try:
                         attrs = {a.get('name'): a.text for a in shape.findall('attribute')}
@@ -79,6 +111,92 @@ class CVATParser(BaseAnnotationParser):
                     except (ValueError, TypeError, KeyError):
                         self.warnings.append(f"{s['file_name']}: skipped malformed {shape.tag}")
                 results.append(s)
+
+            tracks = root.findall('track')
+            if tracks:
+                media_by_frame = {}
+                for m in (media or []):
+                    digits = re.findall(r'\d+', m.stem)
+                    if digits:
+                        try:
+                            media_by_frame[int(digits[-1])] = m
+                        except ValueError:
+                            pass
+
+                total_frames = None
+                task = root.find('.//task')
+                if task is not None:
+                    if task.findtext('size'):
+                        try:
+                            total_frames = int(task.findtext('size'))
+                        except ValueError:
+                            pass
+                    elif task.findtext('stop_frame'):
+                        try:
+                            total_frames = int(task.findtext('stop_frame')) + 1
+                        except ValueError:
+                            pass
+
+                frames_dict = {}
+                for track in tracks:
+                    track_label = track.get('label', 'unlabeled')
+                    track_id = track.get('id')
+                    track_attrs = {a.get('name'): a.text for a in track.findall('attribute')}
+                    for shape in track:
+                        if shape.tag == 'box':
+                            if shape.get('outside') == '1':
+                                continue
+                            try:
+                                frame_idx = int(shape.get('frame', '0'))
+                                if frame_idx not in frames_dict:
+                                    fname = media_by_frame[frame_idx].name if frame_idx in media_by_frame else f"frame_{frame_idx:06d}.PNG"
+                                    frames_dict[frame_idx] = sample(fname, orig_w, orig_h)
+                                s = frames_dict[frame_idx]
+                                g = dict(zip(('x1','y1','x2','y2'), [float(shape.get(k)) for k in ('xtl','ytl','xbr','ybr')]))
+                                attrs = dict(track_attrs)
+                                attrs.update({a.get('name'): a.text for a in shape.findall('attribute')})
+                                if track_id is not None:
+                                    attrs['track_id'] = track_id
+                                occluded = shape.get('occluded') == '1' if shape.get('occluded') is not None else None
+                                meta_attrib = dict(shape.attrib)
+                                meta_attrib['track_id'] = track_id
+                                self.add(s, track_label, 'BBOX_2D', g, attrs, occluded, meta_attrib)
+                            except (ValueError, TypeError, KeyError):
+                                self.warnings.append(f"frame {shape.get('frame')}: skipped malformed box in track {track_id}")
+                        elif shape.tag in ('polygon', 'points'):
+                            if shape.get('outside') == '1':
+                                continue
+                            try:
+                                frame_idx = int(shape.get('frame', '0'))
+                                if frame_idx not in frames_dict:
+                                    fname = media_by_frame[frame_idx].name if frame_idx in media_by_frame else f"frame_{frame_idx:06d}.PNG"
+                                    frames_dict[frame_idx] = sample(fname, orig_w, orig_h)
+                                s = frames_dict[frame_idx]
+                                points = [[float(v) for v in p.split(',')] for p in shape.get('points','').split(';')]
+                                if any(len(p) != 2 for p in points):
+                                    raise ValueError('Expected coordinate pairs')
+                                kind = 'POLYGON' if shape.tag == 'polygon' else 'KEYPOINT'
+                                g = {'points': points if kind == 'POLYGON' else [dict(x=p[0], y=p[1]) for p in points]}
+                                attrs = dict(track_attrs)
+                                attrs.update({a.get('name'): a.text for a in shape.findall('attribute')})
+                                if track_id is not None:
+                                    attrs['track_id'] = track_id
+                                occluded = shape.get('occluded') == '1' if shape.get('occluded') is not None else None
+                                self.add(s, track_label, kind, g, attrs, occluded, dict(shape.attrib))
+                            except (ValueError, TypeError, KeyError):
+                                self.warnings.append(f"frame {shape.get('frame')}: skipped malformed {shape.tag} in track {track_id}")
+
+                all_frame_indices = set(frames_dict.keys())
+                if total_frames:
+                    all_frame_indices.update(range(total_frames))
+                all_frame_indices.update(media_by_frame.keys())
+
+                for frame_idx in sorted(all_frame_indices):
+                    if frame_idx not in frames_dict:
+                        fname = media_by_frame[frame_idx].name if frame_idx in media_by_frame else f"frame_{frame_idx:06d}.PNG"
+                        frames_dict[frame_idx] = sample(fname, orig_w, orig_h)
+                    results.append(frames_dict[frame_idx])
+
         return results
 
 class COCOParser(BaseAnnotationParser):

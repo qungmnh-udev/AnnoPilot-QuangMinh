@@ -19,11 +19,13 @@ class QCConfig(BaseModel):
             "pedestrian": "pedestrian",
             "car": "car",
             "automobile": "car",
+            "vehicle": "car",
             "truck": "truck",
             "bus": "bus",
             "motorcycle": "motorcycle",
             "motor": "motorcycle",
             "motorbike": "motorcycle",
+            "motorcyclist": "rider",
             "bicycle": "bicycle",
             "bike": "bicycle",
             "rider": "rider",
@@ -39,10 +41,12 @@ class QCConfig(BaseModel):
     class_reliability: Dict[str, float] = Field(
         default_factory=lambda: {
             "car": 1.0,
+            "vehicle": 1.0,
             "pedestrian": 0.95,
             "bus": 0.90,
             "truck": 0.90,
             "motorcycle": 0.85,
+            "motorcyclist": 0.85,
             "bicycle": 0.85,
             "rider": 0.80,
             "traffic sign": 0.80,
@@ -50,6 +54,11 @@ class QCConfig(BaseModel):
             "train": 0.85,
         }
     )
+
+class CVATConfigRequest(BaseModel):
+    cvat_base_url: Optional[str] = "http://localhost:8080"
+    cvat_task_id: Optional[int] = None
+    cvat_job_id: Optional[int] = None
 
 class PredictionItem(BaseModel):
     label: str
@@ -76,16 +85,23 @@ class QCIssueResponse(BaseModel):
     prediction_id: Optional[int] = None
     qc_score: float
     evidence: Dict[str, Any]
-    status: Literal['PENDING', 'ACCEPTED', 'REJECTED']
+    frame_number: Optional[int] = None
+    cvat_url: Optional[str] = None
+    status: Literal['PENDING', 'ACCEPTED', 'REJECTED', 'RESOLVED', 'FALSE_POSITIVE']
     reviewer_note: str
 
 class QCIssueResolveRequest(BaseModel):
-    status: Literal['ACCEPTED', 'REJECTED']
+    status: Literal['ACCEPTED', 'REJECTED', 'RESOLVED', 'FALSE_POSITIVE', 'PENDING']
     reviewer_note: Optional[str] = ""
+    sample_id: Optional[int] = None
+    issue_type: Optional[str] = None
+    suggested_label: Optional[str] = None
 
 class QCSampleSummary(BaseModel):
     sample_id: int
     file_name: str
+    frame_number: Optional[int] = None
+    cvat_url: Optional[str] = None
     qc_score: float
     severity: Literal['HIGH', 'MEDIUM', 'LOW', 'CLEAN']
     missing_count: int

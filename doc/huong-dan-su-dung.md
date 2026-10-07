@@ -34,30 +34,44 @@ AnnoPilot ứng dụng một mô hình nhận diện vật thể tiền huấn l
 * **Bắt lỗi sai phân loại (`WRONG_CLASS`):** Cả người và model đều vẽ box trùng tọa độ ($IoU \ge 0.50$), nhưng nhãn người gán khác nhãn model dự đoán, rơi vào vùng tiền nghiệm nhầm lẫn lái xe (`Driving Confusion Priors`).
 * **Hàng đợi ưu tiên (Prioritized Review Queue):** Chấm điểm rủi ro (`qc_score`) từ 0.0 đến 1.0; tự động đẩy các bức ảnh nguy cơ lỗi cao nhất (`HIGH`) lên đầu danh sách để chuyên gia rà soát trước.
 * **Cắt giảm khối lượng công việc (Workload Reduction):** Tự động phân loại các ảnh có độ đồng thuận tuyệt đối là `CLEAN` và bỏ qua rà soát thủ công.
-* **Sửa lỗi 1-chạm (1-Click Closed-loop Resolution):** Reviewer chỉ cần bấm **Chấp nhận** để tự động thêm box mới hoặc sửa nhãn trực tiếp vào cơ sở dữ liệu.
+* **Tích hợp sâu CVAT qua Deep-link (`Open in CVAT`):** Kết nối trực tiếp với Annotation Editor của CVAT theo định dạng URL `.../tasks/{task_id}/jobs/{job_id}?frame={frame_number}`, giúp annotator nhảy thẳng vào đúng frame để sửa.
+* **Sửa lỗi khép kín (Closed-Loop Resolution):** Hỗ trợ cả 2 chế độ:
+  - *Chế độ CVAT chuẩn:* Bấm `[ ↗ Open in CVAT ]` để sửa nhãn nguồn, sau đó bấm `[ ✓ Đã sửa trên CVAT (Resolved) ]`.
+  - *Chế độ Ngoại tuyến (Fast Demo):* Bấm `[ ⚡ 1-Click Sửa tự động ]` để tự động thêm box / đổi class ngay lập tức (tiện cho demo mà không cần khởi động cụm Docker CVAT).
+
+### 1.3. Sơ đồ Kiến trúc CVAT × QC Dashboard (Chuẩn tài liệu thiết kế v0.1)
 
 ```text
-  [ Dữ liệu BDD100K ] + [ Pretrained YOLOv8 ]
-               │
-               ▼
-     [ Bipartite IoU Matching Engine ]
-               │
-      ┌────────┴────────┐
-      ▼                 ▼
-[ MISSING_OBJECT ]  [ WRONG_CLASS ]
-      │                 │
-      └────────┬────────┘
-               ▼
-     [ QC Ranking & Severity ]
-               │
-               ▼
-     [ Prioritized Queue ] ──> Đẩy ảnh lỗi nặng lên vị trí #1
-               │
-               ▼
-   [ Visual Diff 2 lớp & 1-Click Action ] ──> Sửa trực tiếp DB
+┌────────────────────────────────────────────────────────────────────────┐
+│                   TẦNG 1: CVAT (SYSTEM OF RECORD)                       │
+│    - Lưu trữ dữ liệu gốc: Video, Image Frames theo Frame Number (0..N) │
+│    - Annotation Editor: Chỉnh sửa bounding box, class, polygon        │
+│    - Export / REST API: Xuất dữ liệu COCO, BDD100K JSON                │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Export Data (BDD100K / COCO)
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│               TẦNG 2: MODEL QC BACKEND & PIPELINE ENGINE               │
+│    - Pretrained Detector Service: Chạy mô hình YOLOv8 ONNX             │
+│    - Discrepancy Engine: So khớp IoU, phát hiện MISSING & WRONG_CLASS   │
+│    - Prioritization: Chấm điểm QC Score & xếp hạng độ nghi vấn         │
+│    - Deep-link Generator: Sinh URL /tasks/{task_id}?frame={frame_num}   │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ JSON API & Deep-link URL
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│              TẦNG 3: QC DASHBOARD FRONTEND (REVIEWER WORKSPACE)        │
+│    - KPI Metrics: Tỷ lệ giảm tải (Workload Reduction), Số ca Flagged   │
+│    - Prioritized Queue: Hàng đợi ảnh lỗi xếp từ rủi ro cao đến thấp   │
+│    - Visual Diff: So sánh trực quan Lớp người gán vs Lớp model        │
+│    - Nút bấm chủ đạo: [ ↗ Open in CVAT ] (Mở thẳng đúng frame trên CVAT)│
+│    - Triage khép kín: [ Đã sửa trên CVAT ] / [ 1-Click Sửa ] / [ Báo sai]│
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
----
+> **Nguyên tắc cốt lõi phân định trách nhiệm:**
+> - **CVAT = Nơi sửa dữ liệu (System of Record):** Lưu trữ toàn bộ dữ liệu nguồn, đảm bảo tính nhất quán của tập nhãn.
+> - **QC Dashboard = Nơi phát hiện, xếp hạng và review (Decision & Prioritization Layer):** Không gán nhãn lại từ đầu mà tập trung phân tích, xếp hạng và điều hướng reviewer xử lý các ca lỗi nhanh nhất.
 
 ## 2. Kiến trúc Kỹ thuật & Cấu trúc Thư mục
 
@@ -205,15 +219,16 @@ cd d:\AI\repo\AnnoPilot-qminh\backend
 
 ## 6. Hướng dẫn Chi tiết Thao tác trên Giao diện Web (Web UI)
 
-### Bước 1: Nạp Dataset BDD100K vào hệ thống
+### Bước 1: Nạp Dataset (CVAT demo.zip hoặc BDD100K) vào hệ thống
 1. Truy cập `http://localhost:3000`.
 2. Trên màn hình Dashboard, bấm nút **"Upload Dataset"** (góc trên bên phải).
 3. Điền các trường thông tin:
-   * **Dataset Name:** Ví dụ `BDD100K Verification Run`.
-   * **Annotation Format:** Chọn `BDD100K` (hoặc `Auto Detect`).
-   * **Annotation Files:** Chọn file `demo_data/bdd100k_val_sample.json` (hoặc file json BDD100K của bạn).
-   * **Media Files (Tuỳ chọn):** Chọn các file ảnh `.jpg` trong `demo_data/images`.
-4. Bấm **Upload & Analyze**. Hệ thống sẽ parse toàn bộ nhãn và chuyển hướng đến trang tổng quan.
+   * **Dataset Name:** Ví dụ `CVAT Demo Tracking Day 03` (hoặc tên tuỳ ý).
+   * **Annotation Format:** Chọn `Auto Detect` hoặc `CVAT`.
+   * **Annotation Files / ZIP:** Chọn trực tiếp file `demo.zip` (từ thư mục `Downloads`).
+     > **Lưu ý đặc biệt:** File `demo.zip` đã đóng gói sẵn cả file `annotations.xml` (dạng CVAT video track) và toàn bộ 360 ảnh `images/frame_000000.PNG` đến `frame_000359.PNG`. Backend AnnoPilot sẽ tự động giải nén, phát hiện ảnh và khớp 100% 360 frames cùng 2,135 bounding boxes mà **không cần nạp riêng file media**.
+   * **Tự động liên kết CVAT:** Hệ thống tự động đọc `<task><id>2</id>` và `<segment><id>2</id>` trong metadata của `demo.zip`, tự động điền `CVAT Task ID = 2`, `Job ID = 2` và sinh Deep-link `http://localhost:8080/tasks/2/jobs/2?frame={frame_number}` cho từng frame.
+4. Bấm **Upload & Analyze**. Hệ thống sẽ nạp dữ liệu và chuyển thẳng sang phân hệ Model QC.
 
 ---
 
@@ -223,20 +238,24 @@ Trên thanh Sidebar bên trái màn hình, nhấn vào mục có biểu tượng
 ---
 
 ### Bước 3: Chạy Rà soát Đối soát (Audit Run)
-Tại thanh công cụ phía trên trang Model QC, bạn có 3 cách để bắt đầu đối soát:
+Tại thanh công cụ phía trên trang Model QC, bạn có các tính năng hỗ trợ đối soát:
 
-#### Lựa chọn A: Run Pretrained Detector (Mô hình YOLOv8 ONNX thực tế)
+#### Lựa chọn A: Xem Sơ đồ Kiến trúc & Cấu hình CVAT
+* **Nút "Kiến trúc CVAT × QC":** Mở sơ đồ tương tác 3 tầng giải thích phân định trách nhiệm giữa CVAT (System of Record) và QC Dashboard (Decision Layer).
+* **Nút "Cấu hình CVAT":** Cho phép nhập địa chỉ CVAT Server (mặc định `http://localhost:8080`), Task ID và Job ID. Khi lưu, toàn bộ liên kết Deep-link trên hệ thống sẽ tự động cập nhật trỏ về đúng task/job trên CVAT.
+
+#### Lựa chọn B: Run Pretrained Detector (Mô hình YOLOv8 ONNX thực tế)
 * Nhấn nút màu xanh lá cây **"Run Pretrained Detector"**.
 * Hệ thống sẽ tự động gọi backend chạy file `backend/models/yolov8n.onnx` trên từng ảnh và lưu kết quả predictions vào CSDL.
 
-#### Lựa chọn B: Simulate Benchmark (Mô phỏng Benchmark có kiểm soát)
+#### Lựa chọn C: Simulate Benchmark (Mô phỏng Benchmark có kiểm soát)
 * Nhấn nút màu xanh dương **"Simulate Benchmark"**.
 * Hộp thoại mô phỏng mở ra cho phép kéo 2 thanh trượt:
   * **Missing Ratio (Mặc định 15%):** Tỷ lệ giả lập bỏ sót vật thể để kiểm tra độ nhạy của thuật toán.
   * **Wrong Class Ratio (Mặc định 15%):** Tỷ lệ giả lập gán nhầm nhãn giữa các cặp dễ nhầm lẫn.
 * Nhấn **"Bắt đầu mô phỏng"**. Hệ thống sẽ tự động sinh dữ liệu dự đoán và thực thi đối soát ngay lập tức.
 
-#### Lựa chọn C: Upload Predictions JSON
+#### Lựa chọn D: Upload Predictions JSON
 * Nếu bạn đã chạy inference từ một mô hình bên ngoài (ví dụ YOLOv10, Faster-RCNN), bấm **"Upload Predictions"** để nạp file JSON.
 
 ---
@@ -255,6 +274,7 @@ Ngay sau khi chạy xong, 4 thẻ KPI động sẽ hiển thị kết quả phâ
 
 ### Bước 5: Làm việc với Hàng đợi Ưu tiên (Prioritized Queue - Cột Trái)
 * **Xếp hạng thông minh:** Các ảnh được sắp xếp tự động theo thứ tự giảm dần của `qc_score`. Ảnh có lỗi nguy hiểm nhất luôn nằm ở vị trí số **#1** với huy hiệu viền đỏ `HIGH`.
+* **Thông tin Frame & CVAT:** Mỗi thẻ ảnh hiển thị rõ ràng nhãn **Frame #N** và nút bấm liên kết trực tiếp sang CVAT.
 * **Bộ lọc đa chiều:**
   * Lọc theo mức độ nghiêm trọng: `ALL`, `HIGH`, `MEDIUM`, `LOW`, hoặc `CLEAN`.
   * Lọc theo loại lỗi: `Chỉ sót vật thể` hoặc `Chỉ sai class`.
@@ -263,24 +283,22 @@ Ngay sau khi chạy xong, 4 thẻ KPI động sẽ hiển thị kết quả phâ
 
 ---
 
-### Bước 6: Đối soát Trực quan (Visual Diff) & Sửa lỗi 1-Chạm (Cột Phải)
+### Bước 6: Đối soát Trực quan (Visual Diff) & Xử lý Lỗi (Closed-Loop Resolution)
 
-#### 1. Khung hiển thị trực quan (Dual-Overlay Canvas)
-Phía trên bức ảnh có 3 nút công tắc cho phép reviewer bật/tắt hiển thị từng lớp:
-* **[Nhãn người gán]:** Bounding box viền nét liền màu **Xanh ngọc (Teal)** — đại diện cho Ground Truth hiện tại.
-* **[Model dự đoán]:** Bounding box viền nét đứt màu **Cam (Orange)** kèm chỉ số độ tin cậy $Conf$.
-* **[Vùng nghi vấn]:** Bounding box viền màu **Đỏ nhấp nháy (Red Glow)** làm nổi bật chính xác vị trí phát hiện lỗi.
+#### 1. Khung hiển thị trực quan (Dual-Overlay Canvas) & Deep-Link Header
+* **Nút CTA chính `[ ↗ Open in CVAT (Frame #N) ]`:** Được đặt nổi bật ngay cạnh tên file. Bấm nút này sẽ mở tab trình duyệt mới, đưa reviewer/annotator vào đúng frame trên CVAT Annotation Editor để sửa lỗi trực tiếp.
+* **Công tắc 3 lớp đối chiếu:**
+  * **[Nhãn người gán]:** Bounding box viền nét liền màu **Xanh ngọc (Teal)** — đại diện cho Ground Truth hiện tại.
+  * **[Model dự đoán]:** Bounding box viền nét đứt màu **Cam (Orange)** kèm chỉ số độ tin cậy $Conf$.
+  * **[Vùng nghi vấn]:** Bounding box viền màu **Đỏ nhấp nháy (Red Glow)** làm nổi bật chính xác vị trí phát hiện lỗi.
 
-#### 2. Thẻ Bằng chứng Bất đồng & Thao tác 1-Chạm (Evidence Cards)
-Bên dưới ảnh, hệ thống hiển thị chi tiết từng điểm bất đồng kèm bảng so khớp:
-* **Nếu là lỗi Sót vật thể (`MISSING_OBJECT`):**
-  * Hiển thị: Nhãn người: *Chưa gán nhãn* | Model phát hiện: `car` ($Conf: 0.88$).
-  * Bấm nút **"Chấp nhận: Tự động thêm Box mới"**: Hệ thống tự động tạo thêm một annotation mới chuẩn xác vào CSDL Ground Truth mà reviewer không cần phải tự tay vẽ lại!
-* **Nếu là lỗi Gán nhầm nhãn (`WRONG_CLASS`):**
-  * Hiển thị: Nhãn người: `bus` | Model phát hiện: `truck` ($IoU: 0.74$, Lý do: *Xe tải lớn thường bị nhầm thành xe bus*).
-  * Bấm nút **"Chấp nhận: Đổi nhãn thành 'truck'"**: Hệ thống tự động cập nhật lại nhãn trong CSDL ngay lập tức.
-* **Nếu Model báo sai (False Alarm):**
-  * Bấm nút **"Bác bỏ (Model báo sai)"**: Hệ thống giữ nguyên nhãn của người gán, đánh dấu vấn đề là đã duyệt và chuyển sang bức ảnh tiếp theo.
+#### 2. Thẻ Bằng chứng Bất đồng & Các Lựa chọn Xử lý (Hybrid Workflow)
+Bên dưới ảnh, hệ thống hiển thị chi tiết từng điểm bất đồng kèm bảng so khớp và 4 nút hành động:
+* **Hành động 1 — `[ ↗ Mở trên CVAT ]`:** Mở trực tiếp frame chứa issue này trong CVAT để sửa trên System of Record.
+* **Hành động 2 — `[ ✓ Đã sửa trên CVAT (Resolved) ]`:** Đánh dấu issue đã được hoàn tất chỉnh sửa trên CVAT.
+* **Hành động 3 — `[ ⚡ 1-Click Sửa tự động (Demo) ]`:** Tự động sửa nhãn / thêm box trực tiếp vào DB, rất tiện lợi khi trình diễn demo cho mentor hoặc kiểm thử nhanh mà không cần bật cụm Docker CVAT.
+* **Hành động 4 — `[ ✗ Báo sai (False Positive) ]`:** Bác bỏ cảnh báo sai của Pretrained Model, giữ nguyên nhãn của annotator.
+* **Hành động 5 — `[ ↺ Hoàn tác ]`:** Cho phép hoàn tác mọi issue đã xử lý về trạng thái `Pending` nếu cần đánh giá lại.
 
 ---
 

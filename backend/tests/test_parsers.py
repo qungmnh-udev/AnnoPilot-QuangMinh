@@ -55,3 +55,36 @@ def test_kitti_coordinates_and_unavailable_occlusion(tmp_path):
     assert a['geometry']['dimensions']['length']==4
     assert a['occluded'] is None
     assert 'bottom center' in a['source_metadata']['coordinate_system']
+
+def test_cvat_video_tracks_and_meta(tmp_path):
+    xml_content = '''<annotations>
+        <version>1.1</version>
+        <meta>
+            <task>
+                <id>42</id>
+                <name>Test Task</name>
+                <size>2</size>
+                <original_size><width>640</width><height>480</height></original_size>
+            </task>
+            <segments>
+                <segment><id>99</id></segment>
+            </segments>
+        </meta>
+        <track id="1" label="Vehicle">
+            <box frame="0" outside="0" occluded="0" xtl="10" ytl="20" xbr="50" ybr="60" />
+            <box frame="1" outside="1" occluded="0" xtl="10" ytl="20" xbr="50" ybr="60" />
+        </track>
+    </annotations>'''
+    p = write(tmp_path, 'annotations.xml', xml_content)
+    parser = CVATParser()
+    samples = parser.parse([p], [])
+    assert parser.cvat_task_id == 42
+    assert parser.cvat_job_id == 99
+    assert len(samples) == 2
+    assert samples[0]['file_name'] == 'frame_000000.PNG'
+    assert len(samples[0]['annotations']) == 1
+    assert samples[0]['annotations'][0]['label'] == 'Vehicle'
+    assert samples[0]['annotations'][0]['geometry'] == {'x1': 10.0, 'y1': 20.0, 'x2': 50.0, 'y2': 60.0}
+    # Frame 1 has outside=1 so no active annotation
+    assert len(samples[1]['annotations']) == 0
+

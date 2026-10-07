@@ -148,3 +148,58 @@ def test_detect_endpoint(client):
     assert 'predictions_generated' in detect_res.json()
     assert 'audit_summary' in detect_res.json()
 
+def test_cvat_config_and_deep_link(client):
+    data = [
+        {"name": "frame_000042.jpg", "labels": [{"category": "car", "box2d": {"x1": 50, "y1": 50, "x2": 150, "y2": 150}}]}
+    ]
+    res = client.post(
+        '/api/datasets/upload',
+        data={'name': 'CVAT-Link-Test', 'format': 'BDD100K', 'task_type': 'BBOX_2D'},
+        files=[('annotations', ('labels.json', io.BytesIO(json.dumps(data).encode()), 'application/json'))]
+    )
+    dataset_id = res.json()['id']
+
+    # Update CVAT configuration
+    cvat_conf = client.put(
+        f'/api/datasets/{dataset_id}/cvat-config',
+        json={
+            'cvat_base_url': 'http://localhost:8080',
+            'cvat_task_id': 101,
+            'cvat_job_id': 202
+        }
+    )
+    assert cvat_conf.status_code == 200
+    dataset_info = cvat_conf.json()
+    assert dataset_info['cvat_task_id'] == 101
+    assert dataset_info['cvat_job_id'] == 202
+    assert dataset_info['cvat_base_url'] == 'http://localhost:8080'
+
+    # Run synthetic benchmark to inject QC issues
+    synth_res = client.post(f'/api/datasets/{dataset_id}/qc/synthetic-benchmark?missing_ratio=1.0&wrong_class_ratio=0.0')
+    assert synth_res.status_code == 200
+
+    # Check queue issues have cvat_url pointing to frame 42
+    queue = client.get(f'/api/datasets/{dataset_id}/qc/queue').json()
+    assert len(queue) == 1
+    sample = queue[0]
+    assert sample['frame_number'] == 42
+    assert sample['cvat_url'] == 'http://localhost:8080/tasks/101/jobs/202?frame=42'
+
+    assert len(sample['qc_issues']) > 0
+    issue = sample['qc_issues'][0]
+    assert issue['frame_number'] == 42
+    assert issue['cvat_url'] == 'http://localhost:8080/tasks/101/jobs/202?frame=42'
+
+    # Test resolving with RESOLVED status
+    res_put = client.put(
+        f"/api/qc/issues/{issue['id']}",
+        json={'status': 'RESOLVED', 'reviewer_note': 'Fixed directly in CVAT'}
+    )
+    assert res_put.status_code == 200
+    assert res_put.json()['status'] == 'RESOLVED'
+
+    # Also test get_cvat_link endpoint
+    link_res = client.get(f"/api/qc/issues/{issue['id']}/cvat-link")
+    assert link_res.status_code == 200
+    assert link_res.json()['cvat_url'] == 'http://localhost:8080/tasks/101/jobs/202?frame=42'
+

@@ -24,6 +24,14 @@ import {
   FileCheck,
   LoaderCircle,
   Filter,
+  ExternalLink,
+  Link2,
+  Workflow,
+  ArrowRight,
+  Database,
+  Cpu,
+  MonitorCheck,
+  Undo2,
 } from "lucide-react";
 import { api, json } from "../api";
 import type { Dataset, Sample, QCAuditReport, QCIssue, Prediction, Annotation } from "../types";
@@ -63,6 +71,19 @@ export function ModelQCPage({
   const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
   const [uploadSourceModel, setUploadSourceModel] = useState<string>("yolov8-bdd100k");
 
+  // CVAT Integration & Architecture Modal states
+  const [showArchModal, setShowArchModal] = useState<boolean>(false);
+  const [showCVATModal, setShowCVATModal] = useState<boolean>(false);
+  const [cvatBaseUrl, setCvatBaseUrl] = useState<string>(dataset.cvat_base_url || "http://localhost:8080");
+  const [cvatTaskId, setCvatTaskId] = useState<string>(dataset.cvat_task_id ? String(dataset.cvat_task_id) : "");
+  const [cvatJobId, setCvatJobId] = useState<string>(dataset.cvat_job_id ? String(dataset.cvat_job_id) : "");
+
+  useEffect(() => {
+    setCvatBaseUrl(dataset.cvat_base_url || "http://localhost:8080");
+    setCvatTaskId(dataset.cvat_task_id ? String(dataset.cvat_task_id) : "");
+    setCvatJobId(dataset.cvat_job_id ? String(dataset.cvat_job_id) : "");
+  }, [dataset]);
+
   // Load QC Data
   const loadQCData = async () => {
     try {
@@ -76,9 +97,20 @@ export function ModelQCPage({
       setReport(reportData);
       setQueue(queueData);
       if (queueData.length > 0) {
-        // Default select first flagged sample, or first sample
-        const firstFlagged = queueData.find((s) => (s.qc_issue_count || 0) > 0) || queueData[0];
-        setSelectedSample(firstFlagged);
+        // Preserve currently selected sample if it exists in queueData, fetching fresh details
+        const currentId = selectedSample?.id;
+        const matchingCurrent = currentId ? queueData.find((s) => s.id === currentId) : null;
+        if (matchingCurrent) {
+          try {
+            const detailed = await api<Sample>(`/samples/${currentId}`);
+            setSelectedSample(detailed);
+          } catch {
+            setSelectedSample(matchingCurrent);
+          }
+        } else {
+          const firstFlagged = queueData.find((s) => (s.qc_issue_count || 0) > 0) || queueData[0];
+          setSelectedSample(firstFlagged);
+        }
       } else {
         setSelectedSample(null);
       }
@@ -165,18 +197,81 @@ export function ModelQCPage({
     });
   };
 
-  // Resolve Issue (1-Click Action)
-  const handleResolveIssue = async (issueId: number, status: "ACCEPTED" | "REJECTED", note = "") => {
-    if (!selectedSample) return;
-    void act(status === "ACCEPTED" ? "Accepting and applying fix…" : "Rejecting false alarm…", async () => {
+  // Save CVAT Configuration
+  const handleSaveCVATConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setShowCVATModal(false);
+    void act("Đang lưu cấu hình CVAT…", async () => {
       try {
-        await api(`/qc/issues/${issueId}`, json("PUT", { status, reviewer_note: note }));
+        await api(
+          `/datasets/${dataset.id}/cvat-config`,
+          json("PUT", {
+            cvat_base_url: cvatBaseUrl.trim() || "http://localhost:8080",
+            cvat_task_id: cvatTaskId.trim() ? parseInt(cvatTaskId.trim(), 10) : null,
+            cvat_job_id: cvatJobId.trim() ? parseInt(cvatJobId.trim(), 10) : null,
+          }),
+        );
+        await onRefreshDataset();
+        await loadQCData();
+      } catch (err: any) {
+        setError(err?.message || "Lỗi lưu cấu hình CVAT");
+      }
+    });
+  };
+
+  // Helper to generate Deep-link to CVAT
+  const getSampleCVATUrl = (sample: Sample) => {
+    if (sample.cvat_url) return sample.cvat_url;
+    const base = (dataset.cvat_base_url || cvatBaseUrl || "http://localhost:8080").replace(/\/$/, "");
+    const frame = sample.frame_number ?? (sample.id - 1);
+    const taskId = dataset.cvat_task_id || (cvatTaskId.trim() ? parseInt(cvatTaskId.trim(), 10) : null);
+    const jobId = dataset.cvat_job_id || (cvatJobId.trim() ? parseInt(cvatJobId.trim(), 10) : null);
+
+    if (taskId) {
+      if (jobId) {
+        return `${base}/tasks/${taskId}/jobs/${jobId}?frame=${frame}`;
+      }
+      return `${base}/tasks/${taskId}?frame=${frame}`;
+    }
+    return `${base}/tasks?frame=${frame}`;
+  };
+
+  // Resolve Issue (Supporting CVAT Resolved, Fast 1-Click Accept, False Positive, and Undo)
+  const handleResolveIssue = async (
+    issueId: number,
+    status: "ACCEPTED" | "REJECTED" | "RESOLVED" | "FALSE_POSITIVE" | "PENDING",
+    note = "",
+    issueObj?: any,
+  ) => {
+    if (!selectedSample) return;
+    const actMsg =
+      status === "RESOLVED"
+        ? "Đánh dấu đã sửa trên CVAT…"
+        : status === "ACCEPTED"
+        ? "Tự động áp dụng sửa 1-Click…"
+        : status === "FALSE_POSITIVE" || status === "REJECTED"
+        ? "Bác bỏ cảnh báo sai của model…"
+        : "Đưa về trạng thái chờ xử lý…";
+
+    void act(actMsg, async () => {
+      try {
+        await api(
+          `/qc/issues/${issueId}`,
+          json("PUT", {
+            status,
+            reviewer_note: note,
+            sample_id: selectedSample.id,
+            issue_type: issueObj?.issue_type,
+            suggested_label: issueObj?.suggested_label,
+          }),
+        );
         // Reload current sample & dataset audit
         await refreshCurrentSample(selectedSample.id);
         const reportData = await api<QCAuditReport>(`/datasets/${dataset.id}/qc/report`);
         setReport(reportData);
       } catch (err: any) {
         setError(err?.message || "Failed to resolve QC issue");
+        await refreshCurrentSample(selectedSample.id);
       }
     });
   };
@@ -220,6 +315,22 @@ export function ModelQCPage({
         </div>
 
         <div className="qc-actions-bar">
+          <button
+            className="secondary btn-arch-highlight"
+            disabled={busy}
+            onClick={() => setShowArchModal(true)}
+            title="Xem sơ đồ kiến trúc hệ thống CVAT × QC Dashboard theo tài liệu thiết kế"
+          >
+            <Workflow size={16} /> Kiến trúc CVAT × QC
+          </button>
+          <button
+            className="secondary"
+            disabled={busy}
+            onClick={() => setShowCVATModal(true)}
+            title="Cấu hình URL CVAT Server, Task ID và Job ID"
+          >
+            <Link2 size={16} /> Cấu hình CVAT {dataset.cvat_task_id ? `(#${dataset.cvat_task_id})` : ""}
+          </button>
           <button className="primary" disabled={busy} onClick={handleRunDetector}>
             <Bot size={16} /> Run Pretrained Detector
           </button>
@@ -422,6 +533,19 @@ export function ModelQCPage({
                     </div>
 
                     <div className="qc-item-chips">
+                      <span className="chip chip-frame">
+                        Frame #{item.frame_number ?? (item.id - 1)}
+                      </span>
+                      <a
+                        href={getSampleCVATUrl(item)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="queue-cvat-link"
+                        title="Mở frame này trong CVAT"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <ExternalLink size={11} /> CVAT
+                      </a>
                       {missingCount > 0 && (
                         <span className="chip chip-missing">+{missingCount} Sót</span>
                       )}
@@ -452,11 +576,23 @@ export function ModelQCPage({
             <div className="qc-inspection-wrap">
               {/* Inspection Top Bar */}
               <div className="qc-inspection-header">
-                <div>
-                  <div className="eyebrow">
-                    SAMPLE #{selectedSample.id} · {selectedSample.task_type}
+                <div style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
+                  <div>
+                    <div className="eyebrow">
+                      SAMPLE #{selectedSample.id} · FRAME #{selectedSample.frame_number ?? (selectedSample.id - 1)} · {selectedSample.task_type}
+                    </div>
+                    <h2>{selectedSample.file_name}</h2>
                   </div>
-                  <h2>{selectedSample.file_name}</h2>
+                  <a
+                    href={getSampleCVATUrl(selectedSample)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-cvat-primary"
+                    title="Mở trực tiếp frame này trong CVAT Annotation Editor để kiểm tra hoặc sửa nhãn"
+                  >
+                    <ExternalLink size={16} />
+                    <span>Open in CVAT (Frame #{selectedSample.frame_number ?? (selectedSample.id - 1)})</span>
+                  </a>
                 </div>
 
                 {/* Layer Toggles */}
@@ -618,8 +754,9 @@ export function ModelQCPage({
                   <div className="qc-issues-list">
                     {selectedSample.qc_issues.map((issue) => {
                       const isPending = issue.status === "PENDING";
+                      const isResolved = issue.status === "RESOLVED";
                       const isAccepted = issue.status === "ACCEPTED";
-                      const isRejected = issue.status === "REJECTED";
+                      const isRejected = issue.status === "REJECTED" || issue.status === "FALSE_POSITIVE";
 
                       return (
                         <div
@@ -649,7 +786,13 @@ export function ModelQCPage({
                               </span>
                               <span
                                 className={`badge ${
-                                  isPending ? "badge-pending" : isAccepted ? "badge-accepted" : "badge-rejected"
+                                  isPending
+                                    ? "badge-pending"
+                                    : isResolved
+                                    ? "badge-resolved"
+                                    : isAccepted
+                                    ? "badge-accepted"
+                                    : "badge-false-positive"
                                 }`}
                               >
                                 {issue.status}
@@ -698,38 +841,85 @@ export function ModelQCPage({
                           <div className="qc-issue-actions">
                             {isPending ? (
                               <>
+                                <a
+                                  href={issue.cvat_url || getSampleCVATUrl(selectedSample)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="btn-cvat-primary"
+                                  title="Mở frame này trong CVAT Annotation Editor để sửa"
+                                >
+                                  <ExternalLink size={15} />
+                                  Mở trên CVAT (Frame #{issue.frame_number ?? (selectedSample.frame_number ?? (selectedSample.id - 1))})
+                                </a>
+                                <button
+                                  className="btn-resolve-cvat"
+                                  disabled={busy}
+                                  onClick={() => handleResolveIssue(issue.id, "RESOLVED", "Đã sửa trên CVAT", issue)}
+                                  title="Đánh dấu đã hoàn thành việc sửa nhãn trực tiếp trên CVAT"
+                                >
+                                  <CheckCircle2 size={15} />
+                                  Đã sửa trên CVAT (Resolved)
+                                </button>
                                 <button
                                   className="btn-accept"
                                   disabled={busy}
-                                  onClick={() => handleResolveIssue(issue.id, "ACCEPTED")}
+                                  onClick={() => handleResolveIssue(issue.id, "ACCEPTED", "1-Click tự động sửa", issue)}
+                                  title="Tự động thêm box hoặc sửa label ngay lập tức cho demo nhanh"
                                 >
-                                  <Check size={16} />
-                                  {issue.issue_type === "MISSING_OBJECT"
-                                    ? "Chấp nhận: Tự động thêm Box mới"
-                                    : `Chấp nhận: Đổi nhãn thành '${issue.suggested_label}'`}
+                                  <Sparkles size={15} />
+                                  1-Click Sửa tự động (Demo)
                                 </button>
                                 <button
                                   className="btn-reject"
                                   disabled={busy}
-                                  onClick={() => handleResolveIssue(issue.id, "REJECTED")}
+                                  onClick={() => handleResolveIssue(issue.id, "FALSE_POSITIVE", "Báo sai của model", issue)}
+                                  title="Bác bỏ vì đây là báo sai (False Positive) của Pretrained Model"
                                 >
-                                  <X size={16} />
-                                  Bác bỏ (Model báo sai)
+                                  <X size={15} />
+                                  Báo sai (False Positive)
                                 </button>
                               </>
+                            ) : isResolved ? (
+                              <div className="resolution-status resolved">
+                                <CheckCircle2 size={18} />
+                                <span>
+                                  Đã sửa trên CVAT: Annotator đã hoàn tất việc sửa nhãn trong CVAT Editor.
+                                </span>
+                                <button
+                                  className="btn-undo"
+                                  title="Hoàn tác về trạng thái chờ xử lý"
+                                  onClick={() => handleResolveIssue(issue.id, "PENDING", "", issue)}
+                                >
+                                  <RotateCcw size={12} /> Hoàn tác
+                                </button>
+                              </div>
                             ) : isAccepted ? (
                               <div className="resolution-status accepted">
                                 <CheckCircle2 size={18} />
                                 <span>
-                                  Đã chấp nhận: Dữ liệu Ground Truth đã được tự động cập nhật chính xác!
+                                  Đã sửa tự động: Dữ liệu Ground Truth đã được cập nhật thành công (1-Click).
                                 </span>
+                                <button
+                                  className="btn-undo"
+                                  title="Hoàn tác về trạng thái chờ xử lý"
+                                  onClick={() => handleResolveIssue(issue.id, "PENDING")}
+                                >
+                                  <RotateCcw size={12} /> Hoàn tác
+                                </button>
                               </div>
                             ) : (
-                              <div className="resolution-status rejected">
+                              <div className="resolution-status false-positive">
                                 <XCircle size={18} />
                                 <span>
-                                  Đã bác bỏ: Giữ nguyên nhãn của người gán (Model false positive).
+                                  Đã xác nhận False Positive: Giữ nguyên nhãn của người gán.
                                 </span>
+                                <button
+                                  className="btn-undo"
+                                  title="Hoàn tác về trạng thái chờ xử lý"
+                                  onClick={() => handleResolveIssue(issue.id, "PENDING")}
+                                >
+                                  <RotateCcw size={12} /> Hoàn tác
+                                </button>
                               </div>
                             )}
                           </div>
@@ -860,6 +1050,224 @@ export function ModelQCPage({
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      )}
+
+      {/* MODAL: CVAT SERVER CONFIGURATION */}
+      {showCVATModal && (
+        <div className="modal-backdrop">
+          <section className="modal qc-modal">
+            <div className="modal-heading">
+              <div>
+                <div className="eyebrow">TÍCH HỢP HỆ THỐNG</div>
+                <h2>Cấu hình kết nối CVAT Server</h2>
+              </div>
+              <button className="icon-button" onClick={() => setShowCVATModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <p className="muted">
+              Kết nối QC Dashboard với phiên bản CVAT của nhóm để kích hoạt cơ chế Deep-link
+              <code> [Open in CVAT] </code> mở thẳng frame cần sửa trong Annotation Editor.
+            </p>
+
+            <form onSubmit={handleSaveCVATConfig}>
+              <div className="form-group">
+                <label>
+                  <span>CVAT Base URL (Server):</span>
+                  <input
+                    type="url"
+                    placeholder="http://localhost:8080"
+                    value={cvatBaseUrl}
+                    onChange={(e) => setCvatBaseUrl(e.target.value)}
+                    required
+                  />
+                  <small className="muted">Mặc định: http://localhost:8080 (hoặc domain CVAT triển khai của nhóm)</small>
+                </label>
+              </div>
+
+              <div className="form-group">
+                <label>
+                  <span>CVAT Task ID:</span>
+                  <input
+                    type="number"
+                    placeholder="VD: 1, 42"
+                    value={cvatTaskId}
+                    onChange={(e) => setCvatTaskId(e.target.value)}
+                  />
+                  <small className="muted">ID của Task trong CVAT tương ứng với dataset này.</small>
+                </label>
+              </div>
+
+              <div className="form-group">
+                <label>
+                  <span>CVAT Job ID (Tùy chọn):</span>
+                  <input
+                    type="number"
+                    placeholder="VD: 1"
+                    value={cvatJobId}
+                    onChange={(e) => setCvatJobId(e.target.value)}
+                  />
+                  <small className="muted">Nếu có Job ID, đường link sẽ trỏ trực tiếp vào Job thay vì cấp Task.</small>
+                </label>
+              </div>
+
+              <div className="qc-reason-box" style={{ margin: "1rem 0" }}>
+                <ExternalLink size={16} />
+                <span>
+                  Định dạng Deep-link:{" "}
+                  <code>
+                    {cvatBaseUrl || "http://localhost:8080"}/tasks/{cvatTaskId || "{task_id}"}
+                    {cvatJobId ? `/jobs/${cvatJobId}` : ""}?frame={"{"}frame_number{"}"}
+                  </code>
+                </span>
+              </div>
+
+              <div className="modal-actions">
+                <button type="button" className="secondary" onClick={() => setShowCVATModal(false)}>
+                  Hủy bỏ
+                </button>
+                <button type="submit" className="primary">
+                  <Check size={16} /> Lưu cấu hình
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {/* MODAL: CVAT X QC DASHBOARD ARCHITECTURE DIAGRAM */}
+      {showArchModal && (
+        <div className="modal-backdrop">
+          <section className="modal qc-modal qc-arch-modal">
+            <div className="modal-heading">
+              <div>
+                <div className="eyebrow">THIẾT KẾ HỆ THỐNG · ĐỀ TÀI N2-04D</div>
+                <h2>Sơ đồ kiến trúc CVAT × QC Dashboard</h2>
+              </div>
+              <button className="icon-button" onClick={() => setShowArchModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <p className="muted">
+              Chuẩn hóa theo tài liệu thiết kế <em>CVAT × QC Dashboard v0.1</em>. Phân tách rành mạch giữa nơi lưu trữ/chỉnh sửa dữ liệu và nơi xếp hạng, đối soát chất lượng.
+            </p>
+
+            <div className="arch-flow-container">
+              {/* TIER 1: CVAT */}
+              <div className="arch-tier-card tier-cvat">
+                <div className="arch-tier-header">
+                  <div className="arch-tier-title">
+                    <Database size={18} className="text-accent" />
+                    <span>CVAT (System of Record)</span>
+                  </div>
+                  <span className="arch-tier-tag">Nơi sửa dữ liệu</span>
+                </div>
+                <div className="arch-tier-grid">
+                  <div className="arch-sub-box">
+                    <strong>Raw Video & Frames</strong>
+                    <p>Lưu trữ hình ảnh gốc theo Frame Index (0, 1, 2... N)</p>
+                  </div>
+                  <div className="arch-sub-box">
+                    <strong>Annotation Editor</strong>
+                    <p>Giao diện gán nhãn, điều chỉnh bounding box & class</p>
+                  </div>
+                  <div className="arch-sub-box">
+                    <strong>CVAT REST API / Export</strong>
+                    <p>Xuất dữ liệu định dạng COCO / BDD100K JSON</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* CONNECTOR 1 */}
+              <div className="arch-connector">
+                <div className="arch-connector-badge">
+                  <ArrowRight size={14} />
+                  <span>Xuất nhãn Ground Truth (BDD100K / COCO format)</span>
+                  <ArrowRight size={14} />
+                </div>
+              </div>
+
+              {/* TIER 2: QC ENGINE & PIPELINE */}
+              <div className="arch-tier-card tier-engine">
+                <div className="arch-tier-header">
+                  <div className="arch-tier-title">
+                    <Cpu size={18} className="text-purple" />
+                    <span>Model QC Backend & Engine</span>
+                  </div>
+                  <span className="arch-tier-tag">Tầng đối soát tự động</span>
+                </div>
+                <div className="arch-tier-grid">
+                  <div className="arch-sub-box">
+                    <strong>Pretrained Detector</strong>
+                    <p>Inference dự đoán vị trí & nhãn vật thể (BDD100K classes)</p>
+                  </div>
+                  <div className="arch-sub-box">
+                    <strong>Heuristic Discrepancy Engine</strong>
+                    <p>So khớp IoU, phát hiện Sót vật thể & Sai class</p>
+                  </div>
+                  <div className="arch-sub-box">
+                    <strong>Prioritization & Health Score</strong>
+                    <p>Tính QC Risk Score, đẩy ca bất đồng lên đầu hàng đợi</p>
+                  </div>
+                  <div className="arch-sub-box">
+                    <strong>Deep-link Generator</strong>
+                    <p>Sinh link trực tiếp tới frame: <code>/tasks/ID/jobs/ID?frame=N</code></p>
+                  </div>
+                </div>
+              </div>
+
+              {/* CONNECTOR 2 */}
+              <div className="arch-connector">
+                <div className="arch-connector-badge">
+                  <ArrowRight size={14} />
+                  <span>Nút bấm [ Open in CVAT ] mở đúng Frame trên CVAT Editor để sửa</span>
+                  <ArrowRight size={14} />
+                </div>
+              </div>
+
+              {/* TIER 3: QC DASHBOARD */}
+              <div className="arch-tier-card tier-dashboard">
+                <div className="arch-tier-header">
+                  <div className="arch-tier-title">
+                    <MonitorCheck size={18} className="text-success" />
+                    <span>QC Dashboard (Reviewer Workspace)</span>
+                  </div>
+                  <span className="arch-tier-tag">Tầng ra quyết định & Review</span>
+                </div>
+                <div className="arch-tier-grid">
+                  <div className="arch-sub-box">
+                    <strong>Overview & Workload Reduction</strong>
+                    <p>Đo lường % ảnh sạch được nghiệm thu tự động</p>
+                  </div>
+                  <div className="arch-sub-box">
+                    <strong>Prioritized Review Queue</strong>
+                    <p>Xếp hạng danh sách ảnh từ nguy cơ cao nhất xuống thấp</p>
+                  </div>
+                  <div className="arch-sub-box">
+                    <strong>Dual-Layer Visual Diff</strong>
+                    <p>Bật/tắt nhãn người gán, model phát hiện, vùng nghi vấn</p>
+                  </div>
+                  <div className="arch-sub-box">
+                    <strong>Closed-Loop Triage</strong>
+                    <p>Đánh dấu <em>Resolved trên CVAT</em>, <em>1-Click Sửa tự động</em>, hoặc <em>False Positive</em></p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="arch-footer-callout">
+              <strong>Nguyên tắc vận hành:</strong> QC Dashboard không thay thế CVAT mà đóng vai trò là tầng thông minh (Decision Layer). Reviewer dùng QC Dashboard để tìm ra các frame lỗi nhanh nhất, sau đó bấm <code>Open in CVAT</code> để chuyển thẳng sang CVAT sửa dữ liệu nguồn (System of Record).
+            </div>
+
+            <div className="modal-actions">
+              <button type="button" className="primary" onClick={() => setShowArchModal(false)}>
+                Đã hiểu
+              </button>
+            </div>
           </section>
         </div>
       )}

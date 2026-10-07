@@ -54,7 +54,9 @@ export type QCIssue = {
     model_confidence: number;
     reason: string;
   };
-  status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  frame_number?: number | null;
+  cvat_url?: string | null;
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'RESOLVED' | 'FALSE_POSITIVE';
   reviewer_note: string;
 };
 
@@ -69,6 +71,8 @@ export type Sample = {
   qc_score?: number;
   qc_severity?: 'HIGH' | 'MEDIUM' | 'LOW' | 'CLEAN';
   qc_issue_count?: number;
+  frame_number?: number | null;
+  cvat_url?: string | null;
   media_url: string | null;
   media_kind: string | null;
   annotation_difficulty: number | null;
@@ -126,6 +130,9 @@ export type Dataset = {
   rare_classes: string[];
   missing_media: number;
   warnings: string[];
+  cvat_task_id?: number | null;
+  cvat_job_id?: number | null;
+  cvat_base_url?: string | null;
 };
 export type Run = {
   id: number;

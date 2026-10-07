@@ -54,13 +54,9 @@ import { ModelQCPage } from "./components/ModelQCPage";
 
 const nav = [
   ["Home", House],
-  ["Dashboard", LayoutDashboard],
   ["Model QC", ShieldAlert],
   ["Dataset", Database],
-  ["Difficulty", ChartNoAxesCombined],
-  ["Smart Sampling", Shuffle],
-  ["Workload", Users],
-  ["Review Queue", ListChecks],
+  ["Dashboard", LayoutDashboard],
   ["Settings", SettingsIcon],
 ] as const;
 const colors = ["#38bdf8", "#818cf8", "#2dd4bf", "#fb923c", "#f472b6"];
@@ -248,21 +244,19 @@ export default function App() {
       const ds = await api<Dataset[]>("/datasets");
       const selected =
         id && ds.some((d) => d.id === id) ? id : ds[0]?.id || null;
-      const config = await api<Settings>("/settings");
+      let config: Settings | null = null;
+      try {
+        config = await api<Settings>("/settings");
+      } catch {
+        // Settings are optional
+      }
       if (selected) {
-        const [s, r, rv, a] = await Promise.all([
-          api<Sample[]>(`/datasets/${selected}/samples`),
-          api<Run | null>(`/datasets/${selected}/sampling`),
-          api<Reviewer[]>(`/datasets/${selected}/reviewers`),
-          api<Sample[]>(`/datasets/${selected}/assignments`),
-        ]);
+        const s = await api<Sample[]>(`/datasets/${selected}/samples`);
         setSamples(s);
-        setRun(r);
-        setReviewers(rv);
-        setAssignments(a);
-        setReviewer((old) =>
-          rv.some((r) => r.id === old) ? old : rv[0]?.id || null,
-        );
+        setRun(null);
+        setReviewers([]);
+        setAssignments([]);
+        setReviewer(null);
       } else {
         setSamples([]);
         setRun(null);
@@ -436,7 +430,8 @@ export default function App() {
               dataset={dataset}
               status={datasetStatus}
               onUpload={() => startUpload()}
-              onDashboard={() => requestPage("Dashboard")}
+              onDashboard={() => requestPage("Dataset")}
+              onModelQC={() => requestPage("Model QC")}
             />
           ) : page !== "Settings" ? (
             <DatasetRequiredRoute

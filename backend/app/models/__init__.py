@@ -13,6 +13,7 @@ class Dataset(Base):
     cvat_task_id = Column(Integer, nullable=True)
     cvat_job_id = Column(Integer, nullable=True)
     cvat_base_url = Column(String, nullable=True, default='http://localhost:8080')
+    cvat_token = Column(String, nullable=True, default='ISQjKy3C.KDdn6nz1T65dB0A0s1yhb2ZWIQVcSDAO')
     warnings = Column(JSON, default=list)
     revision = Column(Integer, default=1)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

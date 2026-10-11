@@ -59,6 +59,7 @@ class CVATConfigRequest(BaseModel):
     cvat_base_url: Optional[str] = "http://localhost:8080"
     cvat_task_id: Optional[int] = None
     cvat_job_id: Optional[int] = None
+    cvat_token: Optional[str] = "ISQjKy3C.KDdn6nz1T65dB0A0s1yhb2ZWIQVcSDAO"
 
 class PredictionItem(BaseModel):
     label: str
@@ -120,3 +121,61 @@ class QCAuditReport(BaseModel):
     total_issues: int
     severity_breakdown: Dict[str, int]
     top_suspicious_samples: List[QCSampleSummary]
+
+# --- Incremental Frame Processing & CVAT Sync Schemas (P0) ---
+
+class StartQueueRequest(BaseModel):
+    conf_thresh: Optional[float] = 0.35
+    sample_ids: Optional[List[int]] = None
+    force_repredict: Optional[bool] = False
+
+class FrameQueueStatusResponse(BaseModel):
+    dataset_id: int
+    status: Literal['IDLE', 'RUNNING', 'PAUSED', 'COMPLETED', 'ERROR']
+    total_frames: int
+    processed_frames: int
+    progress_percent: float
+    current_frame_id: Optional[int] = None
+    current_frame_name: Optional[str] = None
+    flagged_frames_count: int = 0
+    recent_audited_frames: List[QCSampleSummary] = Field(default_factory=list)
+    error_message: Optional[str] = None
+
+class FrameAuditResponse(BaseModel):
+    sample_summary: QCSampleSummary
+    predictions_count: int
+
+class CVATSyncResponse(BaseModel):
+    status: str
+    message: str
+    dataset_id: int
+    updated_frames_count: int
+    auto_resolved_issues_count: int
+    remaining_issues_count: int
+    synced_at: str
+
+class CVATVerifyFrameResponse(BaseModel):
+    sample_id: int
+    frame_number: Optional[int] = None
+    is_verified: bool
+    resolved_issues_count: int
+    remaining_issues_count: int
+    message: str
+    issues: List[QCIssueResponse]
+
+class CVATPushRequest(BaseModel):
+    token: Optional[str] = None
+    cvat_base_url: Optional[str] = None
+    cvat_task_id: Optional[int] = None
+    cvat_job_id: Optional[int] = None
+    mode: Optional[Literal['replace', 'create']] = 'replace'
+
+class CVATPushResponse(BaseModel):
+    status: str
+    message: str
+    cvat_task_id: Optional[int] = None
+    cvat_job_id: Optional[int] = None
+    pushed_shapes_count: int
+    cvat_url: Optional[str] = None
+
+

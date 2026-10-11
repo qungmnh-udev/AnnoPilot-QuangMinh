@@ -239,6 +239,7 @@ def dataset_dict(dataset):
         cvat_task_id=getattr(dataset, 'cvat_task_id', None),
         cvat_job_id=getattr(dataset, 'cvat_job_id', None),
         cvat_base_url=getattr(dataset, 'cvat_base_url', 'http://localhost:8080'),
+        cvat_token=getattr(dataset, 'cvat_token', 'ISQjKy3C.KDdn6nz1T65dB0A0s1yhb2ZWIQVcSDAO'),
         created_at=dataset.created_at.isoformat(),
         sample_count=len(samples),
         annotation_count=sum(counts.values()),

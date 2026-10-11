@@ -133,6 +133,7 @@ export type Dataset = {
   cvat_task_id?: number | null;
   cvat_job_id?: number | null;
   cvat_base_url?: string | null;
+  cvat_token?: string | null;
 };
 export type Run = {
   id: number;
@@ -142,4 +143,53 @@ export type Run = {
 };
 export type Reviewer = { id: number; name: string };
 export type Settings = Record<string, Record<string, number> | number>;
+
+export type FrameQueueStatusResponse = {
+  dataset_id: number;
+  status: 'IDLE' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'ERROR';
+  total_frames: number;
+  processed_frames: number;
+  progress_percent: number;
+  current_frame_id: number | null;
+  current_frame_name: string | null;
+  flagged_frames_count: number;
+  recent_audited_frames: Array<{
+    sample_id: number;
+    file_name: string;
+    qc_score: number;
+    severity: string;
+    total_issues: number;
+  }>;
+  error_message: string | null;
+};
+
+export type CVATSyncResponse = {
+  status: string;
+  message: string;
+  dataset_id: number;
+  updated_frames_count: number;
+  auto_resolved_issues_count: number;
+  remaining_issues_count: number;
+  synced_at: string;
+};
+
+export type CVATVerifyFrameResponse = {
+  sample_id: number;
+  frame_number: number | null;
+  is_verified: boolean;
+  resolved_issues_count: number;
+  remaining_issues_count: number;
+  message: string;
+  issues: QCIssue[];
+};
+
+export type CVATPushResponse = {
+  status: string;
+  message: string;
+  cvat_task_id?: number | null;
+  cvat_job_id?: number | null;
+  pushed_shapes_count: number;
+  cvat_url?: string | null;
+};
+
 

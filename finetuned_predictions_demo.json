@@ -1,0 +1,2957 @@
+[
+  {
+    "name": "frame_00.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.901,
+        "box2d": {
+          "x1": 325.73,
+          "y1": 236.99,
+          "x2": 528.98,
+          "y2": 338.67
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.811,
+        "box2d": {
+          "x1": 326.08,
+          "y1": 21.62,
+          "x2": 413.4,
+          "y2": 80.58
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.802,
+        "box2d": {
+          "x1": 122.58,
+          "y1": 90.13,
+          "x2": 249.79,
+          "y2": 156.91
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.785,
+        "box2d": {
+          "x1": 350.4,
+          "y1": 117.12,
+          "x2": 433.19,
+          "y2": 216.68
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.756,
+        "box2d": {
+          "x1": 0.15,
+          "y1": 258.7,
+          "x2": 168.73,
+          "y2": 361.54
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.724,
+        "box2d": {
+          "x1": 424.73,
+          "y1": 342.72,
+          "x2": 522.75,
+          "y2": 396.69
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.719,
+        "box2d": {
+          "x1": 548.36,
+          "y1": 130.44,
+          "x2": 612.47,
+          "y2": 168.88
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.714,
+        "box2d": {
+          "x1": 451.58,
+          "y1": 36.23,
+          "x2": 521.16,
+          "y2": 114.92
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.623,
+        "box2d": {
+          "x1": 630.49,
+          "y1": 174.48,
+          "x2": 662.28,
+          "y2": 234.02
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.513,
+        "box2d": {
+          "x1": 519.6,
+          "y1": 230.79,
+          "x2": 588.53,
+          "y2": 272.21
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.493,
+        "box2d": {
+          "x1": 631.09,
+          "y1": 201.54,
+          "x2": 662.01,
+          "y2": 252.76
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.459,
+        "box2d": {
+          "x1": 267.32,
+          "y1": 102.59,
+          "x2": 309.5,
+          "y2": 140.69
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.447,
+        "box2d": {
+          "x1": 741.55,
+          "y1": 96.17,
+          "x2": 761.82,
+          "y2": 144.82
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.443,
+        "box2d": {
+          "x1": 484.96,
+          "y1": 155.8,
+          "x2": 514.85,
+          "y2": 211.53
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.424,
+        "box2d": {
+          "x1": 74.04,
+          "y1": 109.87,
+          "x2": 117.28,
+          "y2": 157.28
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.415,
+        "box2d": {
+          "x1": 455.89,
+          "y1": 321.44,
+          "x2": 511.85,
+          "y2": 390.73
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.393,
+        "box2d": {
+          "x1": 489.55,
+          "y1": 187.38,
+          "x2": 517.51,
+          "y2": 232.83
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.386,
+        "box2d": {
+          "x1": 443.6,
+          "y1": 115.77,
+          "x2": 471.9,
+          "y2": 170.72
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.382,
+        "box2d": {
+          "x1": 526.92,
+          "y1": 211.71,
+          "x2": 588.17,
+          "y2": 267.07
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.377,
+        "box2d": {
+          "x1": 345.34,
+          "y1": 214.59,
+          "x2": 406.91,
+          "y2": 259.03
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.37,
+        "box2d": {
+          "x1": 723.36,
+          "y1": 190.85,
+          "x2": 767.49,
+          "y2": 229.57
+        }
+      }
+    ]
+  },
+  {
+    "name": "frame_01.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.871,
+        "box2d": {
+          "x1": 233.43,
+          "y1": 242.14,
+          "x2": 439.72,
+          "y2": 341.06
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.816,
+        "box2d": {
+          "x1": 669.16,
+          "y1": 232.57,
+          "x2": 767.62,
+          "y2": 329.43
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.781,
+        "box2d": {
+          "x1": 370.97,
+          "y1": 9.6,
+          "x2": 453.93,
+          "y2": 58.28
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.733,
+        "box2d": {
+          "x1": 0.13,
+          "y1": 272.38,
+          "x2": 53.25,
+          "y2": 360.34
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.701,
+        "box2d": {
+          "x1": 225.86,
+          "y1": 360.59,
+          "x2": 325.62,
+          "y2": 412.05
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.666,
+        "box2d": {
+          "x1": 453.3,
+          "y1": 42.96,
+          "x2": 525.31,
+          "y2": 123.8
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.609,
+        "box2d": {
+          "x1": 171.55,
+          "y1": 71.16,
+          "x2": 292.6,
+          "y2": 133.3
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.604,
+        "box2d": {
+          "x1": 351.07,
+          "y1": 128.5,
+          "x2": 438.71,
+          "y2": 230.85
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.578,
+        "box2d": {
+          "x1": 215.91,
+          "y1": 122.12,
+          "x2": 268.86,
+          "y2": 174.83
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.552,
+        "box2d": {
+          "x1": 359.76,
+          "y1": 0.0,
+          "x2": 404.59,
+          "y2": 20.15
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.551,
+        "box2d": {
+          "x1": 339.65,
+          "y1": 66.22,
+          "x2": 376.83,
+          "y2": 108.38
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.475,
+        "box2d": {
+          "x1": 493.35,
+          "y1": 127.15,
+          "x2": 549.65,
+          "y2": 166.05
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.458,
+        "box2d": {
+          "x1": 502.49,
+          "y1": 209.61,
+          "x2": 530.32,
+          "y2": 260.1
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.439,
+        "box2d": {
+          "x1": 497.22,
+          "y1": 178.27,
+          "x2": 529.96,
+          "y2": 237.26
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.433,
+        "box2d": {
+          "x1": 639.64,
+          "y1": 195.32,
+          "x2": 673.18,
+          "y2": 271.44
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.427,
+        "box2d": {
+          "x1": 506.15,
+          "y1": 130.96,
+          "x2": 550.08,
+          "y2": 166.75
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.417,
+        "box2d": {
+          "x1": 20.16,
+          "y1": 213.57,
+          "x2": 98.8,
+          "y2": 256.13
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.396,
+        "box2d": {
+          "x1": 687.79,
+          "y1": 207.04,
+          "x2": 758.86,
+          "y2": 251.94
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.387,
+        "box2d": {
+          "x1": 270.6,
+          "y1": 335.88,
+          "x2": 312.85,
+          "y2": 406.87
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.37,
+        "box2d": {
+          "x1": 460.63,
+          "y1": 133.28,
+          "x2": 490.03,
+          "y2": 202.44
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.357,
+        "box2d": {
+          "x1": 89.35,
+          "y1": 206.17,
+          "x2": 135.26,
+          "y2": 278.27
+        }
+      }
+    ]
+  },
+  {
+    "name": "frame_02.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.909,
+        "box2d": {
+          "x1": 145.16,
+          "y1": 244.92,
+          "x2": 353.47,
+          "y2": 350.75
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.858,
+        "box2d": {
+          "x1": 528.4,
+          "y1": 256.02,
+          "x2": 722.6,
+          "y2": 360.69
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.771,
+        "box2d": {
+          "x1": 217.69,
+          "y1": 52.92,
+          "x2": 334.76,
+          "y2": 114.45
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.736,
+        "box2d": {
+          "x1": 417.66,
+          "y1": 0.0,
+          "x2": 489.78,
+          "y2": 35.22
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.73,
+        "box2d": {
+          "x1": 455.01,
+          "y1": 47.09,
+          "x2": 528.21,
+          "y2": 130.13
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.726,
+        "box2d": {
+          "x1": 676.82,
+          "y1": 135.81,
+          "x2": 740.25,
+          "y2": 180.55
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.668,
+        "box2d": {
+          "x1": 355.88,
+          "y1": 145.07,
+          "x2": 446.79,
+          "y2": 255.15
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.633,
+        "box2d": {
+          "x1": 165.85,
+          "y1": 214.48,
+          "x2": 238.87,
+          "y2": 250.88
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.484,
+        "box2d": {
+          "x1": 27.87,
+          "y1": 389.98,
+          "x2": 126.99,
+          "y2": 431.08
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.465,
+        "box2d": {
+          "x1": 223.61,
+          "y1": 112.91,
+          "x2": 268.57,
+          "y2": 149.4
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.44,
+        "box2d": {
+          "x1": 400.49,
+          "y1": 45.19,
+          "x2": 434.41,
+          "y2": 79.59
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.423,
+        "box2d": {
+          "x1": 518.34,
+          "y1": 144.82,
+          "x2": 591.13,
+          "y2": 182.39
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.412,
+        "box2d": {
+          "x1": 511.17,
+          "y1": 233.05,
+          "x2": 540.48,
+          "y2": 287.37
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.41,
+        "box2d": {
+          "x1": 84.17,
+          "y1": 216.27,
+          "x2": 145.65,
+          "y2": 250.15
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.392,
+        "box2d": {
+          "x1": 40.47,
+          "y1": 369.91,
+          "x2": 103.32,
+          "y2": 431.61
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.388,
+        "box2d": {
+          "x1": 323.37,
+          "y1": 1.4,
+          "x2": 385.05,
+          "y2": 34.42
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.369,
+        "box2d": {
+          "x1": 506.8,
+          "y1": 202.39,
+          "x2": 539.9,
+          "y2": 275.11
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.358,
+        "box2d": {
+          "x1": 268.23,
+          "y1": 223.63,
+          "x2": 287.93,
+          "y2": 249.12
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.354,
+        "box2d": {
+          "x1": 465.05,
+          "y1": 159.12,
+          "x2": 495.25,
+          "y2": 238.16
+        }
+      }
+    ]
+  },
+  {
+    "name": "frame_03.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.931,
+        "box2d": {
+          "x1": 390.38,
+          "y1": 276.76,
+          "x2": 594.56,
+          "y2": 383.85
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.891,
+        "box2d": {
+          "x1": 56.28,
+          "y1": 250.5,
+          "x2": 268.34,
+          "y2": 356.91
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.795,
+        "box2d": {
+          "x1": 262.52,
+          "y1": 41.14,
+          "x2": 376.88,
+          "y2": 95.96
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.709,
+        "box2d": {
+          "x1": 456.04,
+          "y1": 52.81,
+          "x2": 531.64,
+          "y2": 135.79
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.69,
+        "box2d": {
+          "x1": 291.8,
+          "y1": 0.0,
+          "x2": 383.44,
+          "y2": 42.29
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.667,
+        "box2d": {
+          "x1": 360.09,
+          "y1": 162.65,
+          "x2": 451.84,
+          "y2": 279.86
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.652,
+        "box2d": {
+          "x1": 115.41,
+          "y1": 126.21,
+          "x2": 176.15,
+          "y2": 177.74
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.553,
+        "box2d": {
+          "x1": 577.55,
+          "y1": 130.29,
+          "x2": 626.5,
+          "y2": 180.32
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.497,
+        "box2d": {
+          "x1": 248.83,
+          "y1": 78.34,
+          "x2": 295.99,
+          "y2": 121.95
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.476,
+        "box2d": {
+          "x1": 674.95,
+          "y1": 237.33,
+          "x2": 701.22,
+          "y2": 293.15
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.46,
+        "box2d": {
+          "x1": 681.25,
+          "y1": 251.9,
+          "x2": 718.65,
+          "y2": 314.5
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.451,
+        "box2d": {
+          "x1": 22.36,
+          "y1": 215.65,
+          "x2": 85.33,
+          "y2": 256.04
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.445,
+        "box2d": {
+          "x1": 522.68,
+          "y1": 226.77,
+          "x2": 558.48,
+          "y2": 285.48
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.442,
+        "box2d": {
+          "x1": 415.14,
+          "y1": 139.78,
+          "x2": 471.89,
+          "y2": 177.77
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.402,
+        "box2d": {
+          "x1": 0.49,
+          "y1": 171.84,
+          "x2": 66.59,
+          "y2": 219.07
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.396,
+        "box2d": {
+          "x1": 533.97,
+          "y1": 205.56,
+          "x2": 602.08,
+          "y2": 243.92
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.37,
+        "box2d": {
+          "x1": 64.47,
+          "y1": 61.32,
+          "x2": 87.12,
+          "y2": 114.01
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.367,
+        "box2d": {
+          "x1": 346.91,
+          "y1": 111.68,
+          "x2": 408.93,
+          "y2": 156.96
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.357,
+        "box2d": {
+          "x1": 124.8,
+          "y1": 97.59,
+          "x2": 173.98,
+          "y2": 165.45
+        }
+      }
+    ]
+  },
+  {
+    "name": "frame_04.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.893,
+        "box2d": {
+          "x1": 263.38,
+          "y1": 293.69,
+          "x2": 474.96,
+          "y2": 403.2
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.891,
+        "box2d": {
+          "x1": 0.4,
+          "y1": 255.77,
+          "x2": 183.35,
+          "y2": 363.53
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.739,
+        "box2d": {
+          "x1": 362.22,
+          "y1": 179.88,
+          "x2": 454.99,
+          "y2": 302.59
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.718,
+        "box2d": {
+          "x1": 703.46,
+          "y1": 154.04,
+          "x2": 766.47,
+          "y2": 193.53
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.69,
+        "box2d": {
+          "x1": 457.68,
+          "y1": 57.66,
+          "x2": 533.32,
+          "y2": 141.13
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.586,
+        "box2d": {
+          "x1": 261.81,
+          "y1": 2.57,
+          "x2": 356.32,
+          "y2": 57.75
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.561,
+        "box2d": {
+          "x1": 716.11,
+          "y1": 308.87,
+          "x2": 756.91,
+          "y2": 391.51
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.558,
+        "box2d": {
+          "x1": 34.15,
+          "y1": 203.82,
+          "x2": 101.93,
+          "y2": 241.48
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.558,
+        "box2d": {
+          "x1": 271.75,
+          "y1": 136.45,
+          "x2": 343.74,
+          "y2": 187.19
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.556,
+        "box2d": {
+          "x1": 722.5,
+          "y1": 340.85,
+          "x2": 754.34,
+          "y2": 403.0
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.549,
+        "box2d": {
+          "x1": 122.48,
+          "y1": 131.34,
+          "x2": 173.66,
+          "y2": 175.78
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.546,
+        "box2d": {
+          "x1": 302.31,
+          "y1": 26.39,
+          "x2": 410.62,
+          "y2": 73.97
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.505,
+        "box2d": {
+          "x1": 555.57,
+          "y1": 287.15,
+          "x2": 589.73,
+          "y2": 345.05
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.502,
+        "box2d": {
+          "x1": 459.88,
+          "y1": 188.43,
+          "x2": 529.94,
+          "y2": 235.34
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.454,
+        "box2d": {
+          "x1": 487.5,
+          "y1": 274.68,
+          "x2": 518.47,
+          "y2": 325.46
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.45,
+        "box2d": {
+          "x1": 64.32,
+          "y1": 61.6,
+          "x2": 86.97,
+          "y2": 113.9
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.427,
+        "box2d": {
+          "x1": 0.22,
+          "y1": 143.64,
+          "x2": 54.3,
+          "y2": 190.22
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.4,
+        "box2d": {
+          "x1": 604.66,
+          "y1": 171.48,
+          "x2": 666.8,
+          "y2": 225.9
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.387,
+        "box2d": {
+          "x1": 221.43,
+          "y1": 89.3,
+          "x2": 265.19,
+          "y2": 136.57
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.38,
+        "box2d": {
+          "x1": 599.01,
+          "y1": 85.97,
+          "x2": 654.24,
+          "y2": 122.04
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.357,
+        "box2d": {
+          "x1": 483.36,
+          "y1": 233.27,
+          "x2": 518.11,
+          "y2": 301.99
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.351,
+        "box2d": {
+          "x1": 124.68,
+          "y1": 86.56,
+          "x2": 161.04,
+          "y2": 152.79
+        }
+      }
+    ]
+  },
+  {
+    "name": "frame_05.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.923,
+        "box2d": {
+          "x1": 166.69,
+          "y1": 307.61,
+          "x2": 381.58,
+          "y2": 415.05
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.78,
+        "box2d": {
+          "x1": 460.57,
+          "y1": 63.73,
+          "x2": 538.51,
+          "y2": 153.06
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.775,
+        "box2d": {
+          "x1": 0.13,
+          "y1": 262.5,
+          "x2": 122.83,
+          "y2": 357.5
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.753,
+        "box2d": {
+          "x1": 630.48,
+          "y1": 194.76,
+          "x2": 710.15,
+          "y2": 253.56
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.707,
+        "box2d": {
+          "x1": 125.42,
+          "y1": 153.43,
+          "x2": 201.69,
+          "y2": 191.17
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.686,
+        "box2d": {
+          "x1": 222.86,
+          "y1": 17.23,
+          "x2": 324.08,
+          "y2": 73.88
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.649,
+        "box2d": {
+          "x1": 100.67,
+          "y1": 107.89,
+          "x2": 151.37,
+          "y2": 150.29
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.606,
+        "box2d": {
+          "x1": 343.31,
+          "y1": 11.2,
+          "x2": 442.29,
+          "y2": 61.45
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.577,
+        "box2d": {
+          "x1": 369.47,
+          "y1": 216.75,
+          "x2": 467.2,
+          "y2": 336.7
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.528,
+        "box2d": {
+          "x1": 589.18,
+          "y1": 164.25,
+          "x2": 656.93,
+          "y2": 198.95
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.526,
+        "box2d": {
+          "x1": 739.63,
+          "y1": 163.71,
+          "x2": 767.7,
+          "y2": 205.26
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.504,
+        "box2d": {
+          "x1": 213.91,
+          "y1": 117.18,
+          "x2": 277.91,
+          "y2": 160.84
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.503,
+        "box2d": {
+          "x1": 273.95,
+          "y1": 160.55,
+          "x2": 338.59,
+          "y2": 193.84
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.466,
+        "box2d": {
+          "x1": 607.11,
+          "y1": 323.42,
+          "x2": 646.41,
+          "y2": 389.08
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.439,
+        "box2d": {
+          "x1": 518.32,
+          "y1": 300.73,
+          "x2": 557.08,
+          "y2": 374.79
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.406,
+        "box2d": {
+          "x1": 296.81,
+          "y1": 62.71,
+          "x2": 337.36,
+          "y2": 109.34
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.394,
+        "box2d": {
+          "x1": 183.27,
+          "y1": 90.02,
+          "x2": 225.52,
+          "y2": 126.09
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.38,
+        "box2d": {
+          "x1": 599.09,
+          "y1": 309.4,
+          "x2": 621.48,
+          "y2": 379.5
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.374,
+        "box2d": {
+          "x1": 688.75,
+          "y1": 103.86,
+          "x2": 736.99,
+          "y2": 144.92
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.362,
+        "box2d": {
+          "x1": 529.12,
+          "y1": 348.67,
+          "x2": 556.61,
+          "y2": 406.22
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.354,
+        "box2d": {
+          "x1": 144.0,
+          "y1": 133.14,
+          "x2": 184.64,
+          "y2": 176.9
+        }
+      }
+    ]
+  },
+  {
+    "name": "frame_06.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.931,
+        "box2d": {
+          "x1": 115.53,
+          "y1": 311.21,
+          "x2": 332.54,
+          "y2": 420.51
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.905,
+        "box2d": {
+          "x1": 373.68,
+          "y1": 244.26,
+          "x2": 496.09,
+          "y2": 393.77
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.735,
+        "box2d": {
+          "x1": 464.3,
+          "y1": 74.5,
+          "x2": 546.79,
+          "y2": 165.58
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.657,
+        "box2d": {
+          "x1": 0.36,
+          "y1": 260.52,
+          "x2": 101.68,
+          "y2": 356.96
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.644,
+        "box2d": {
+          "x1": 9.13,
+          "y1": 297.69,
+          "x2": 44.72,
+          "y2": 371.9
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.637,
+        "box2d": {
+          "x1": 664.39,
+          "y1": 232.29,
+          "x2": 740.76,
+          "y2": 272.1
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.592,
+        "box2d": {
+          "x1": 724.94,
+          "y1": 119.59,
+          "x2": 767.58,
+          "y2": 156.87
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.544,
+        "box2d": {
+          "x1": 149.45,
+          "y1": 158.86,
+          "x2": 217.8,
+          "y2": 196.17
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.526,
+        "box2d": {
+          "x1": 663.69,
+          "y1": 213.33,
+          "x2": 740.54,
+          "y2": 272.2
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.502,
+        "box2d": {
+          "x1": 0.04,
+          "y1": 161.79,
+          "x2": 58.7,
+          "y2": 199.11
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.492,
+        "box2d": {
+          "x1": 379.06,
+          "y1": 0.0,
+          "x2": 472.23,
+          "y2": 47.08
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.442,
+        "box2d": {
+          "x1": 170.1,
+          "y1": 31.85,
+          "x2": 271.99,
+          "y2": 100.55
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.41,
+        "box2d": {
+          "x1": 308.51,
+          "y1": 67.31,
+          "x2": 351.71,
+          "y2": 111.73
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.391,
+        "box2d": {
+          "x1": 672.26,
+          "y1": 93.5,
+          "x2": 712.23,
+          "y2": 134.29
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.377,
+        "box2d": {
+          "x1": 269.17,
+          "y1": 171.15,
+          "x2": 325.1,
+          "y2": 215.71
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.366,
+        "box2d": {
+          "x1": 1.31,
+          "y1": 140.44,
+          "x2": 40.18,
+          "y2": 185.38
+        }
+      }
+    ]
+  },
+  {
+    "name": "frame_07.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.939,
+        "box2d": {
+          "x1": 97.76,
+          "y1": 313.04,
+          "x2": 315.9,
+          "y2": 421.0
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.837,
+        "box2d": {
+          "x1": 676.26,
+          "y1": 208.76,
+          "x2": 744.8,
+          "y2": 248.79
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.82,
+        "box2d": {
+          "x1": 400.48,
+          "y1": 303.6,
+          "x2": 555.16,
+          "y2": 429.93
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.788,
+        "box2d": {
+          "x1": 467.79,
+          "y1": 81.27,
+          "x2": 553.79,
+          "y2": 176.2
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.779,
+        "box2d": {
+          "x1": 579.3,
+          "y1": 258.25,
+          "x2": 665.05,
+          "y2": 306.16
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.754,
+        "box2d": {
+          "x1": 111.74,
+          "y1": 49.9,
+          "x2": 227.02,
+          "y2": 117.29
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.674,
+        "box2d": {
+          "x1": 52.09,
+          "y1": 288.18,
+          "x2": 76.37,
+          "y2": 365.39
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.596,
+        "box2d": {
+          "x1": 154.58,
+          "y1": 188.14,
+          "x2": 221.9,
+          "y2": 231.74
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.558,
+        "box2d": {
+          "x1": 12.87,
+          "y1": 166.3,
+          "x2": 88.85,
+          "y2": 205.28
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.529,
+        "box2d": {
+          "x1": 697.0,
+          "y1": 190.28,
+          "x2": 736.18,
+          "y2": 241.43
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.474,
+        "box2d": {
+          "x1": 241.51,
+          "y1": 183.86,
+          "x2": 306.89,
+          "y2": 223.05
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.474,
+        "box2d": {
+          "x1": 414.18,
+          "y1": 59.98,
+          "x2": 463.73,
+          "y2": 100.44
+        }
+      },
+      {
+        "category": "truck",
+        "confidence": 0.447,
+        "box2d": {
+          "x1": 0.0,
+          "y1": 260.76,
+          "x2": 88.47,
+          "y2": 360.93
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.44,
+        "box2d": {
+          "x1": 605.61,
+          "y1": 239.81,
+          "x2": 651.85,
+          "y2": 296.98
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.41,
+        "box2d": {
+          "x1": 616.25,
+          "y1": 112.14,
+          "x2": 678.21,
+          "y2": 154.06
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.375,
+        "box2d": {
+          "x1": 526.08,
+          "y1": 240.0,
+          "x2": 599.21,
+          "y2": 277.48
+        }
+      }
+    ]
+  },
+  {
+    "name": "frame_08.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.943,
+        "box2d": {
+          "x1": 95.88,
+          "y1": 313.9,
+          "x2": 313.07,
+          "y2": 421.04
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.805,
+        "box2d": {
+          "x1": 0.16,
+          "y1": 261.82,
+          "x2": 72.11,
+          "y2": 361.16
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.796,
+        "box2d": {
+          "x1": 473.49,
+          "y1": 93.4,
+          "x2": 562.28,
+          "y2": 189.33
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.768,
+        "box2d": {
+          "x1": 53.66,
+          "y1": 66.06,
+          "x2": 180.73,
+          "y2": 139.32
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.711,
+        "box2d": {
+          "x1": 457.51,
+          "y1": 390.07,
+          "x2": 574.75,
+          "y2": 431.76
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.704,
+        "box2d": {
+          "x1": 85.75,
+          "y1": 278.49,
+          "x2": 112.28,
+          "y2": 357.39
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.67,
+        "box2d": {
+          "x1": 205.98,
+          "y1": 215.38,
+          "x2": 287.89,
+          "y2": 260.7
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.668,
+        "box2d": {
+          "x1": 526.96,
+          "y1": 216.78,
+          "x2": 599.23,
+          "y2": 255.79
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.662,
+        "box2d": {
+          "x1": 43.78,
+          "y1": 211.58,
+          "x2": 112.64,
+          "y2": 254.36
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.641,
+        "box2d": {
+          "x1": 729.07,
+          "y1": 97.36,
+          "x2": 746.48,
+          "y2": 142.93
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.633,
+        "box2d": {
+          "x1": 337.85,
+          "y1": 64.83,
+          "x2": 391.64,
+          "y2": 106.9
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.613,
+        "box2d": {
+          "x1": 413.71,
+          "y1": 265.09,
+          "x2": 498.57,
+          "y2": 313.44
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.597,
+        "box2d": {
+          "x1": 681.34,
+          "y1": 218.17,
+          "x2": 742.51,
+          "y2": 261.04
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.578,
+        "box2d": {
+          "x1": 634.02,
+          "y1": 277.89,
+          "x2": 714.52,
+          "y2": 324.68
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.511,
+        "box2d": {
+          "x1": 547.74,
+          "y1": 195.09,
+          "x2": 588.29,
+          "y2": 249.12
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.477,
+        "box2d": {
+          "x1": 410.08,
+          "y1": 245.53,
+          "x2": 497.72,
+          "y2": 312.98
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.425,
+        "box2d": {
+          "x1": 388.66,
+          "y1": 239.9,
+          "x2": 495.76,
+          "y2": 305.44
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.422,
+        "box2d": {
+          "x1": 743.43,
+          "y1": 188.19,
+          "x2": 767.76,
+          "y2": 237.04
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.41,
+        "box2d": {
+          "x1": 595.22,
+          "y1": 49.3,
+          "x2": 628.35,
+          "y2": 89.92
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.4,
+        "box2d": {
+          "x1": 34.59,
+          "y1": 164.3,
+          "x2": 81.32,
+          "y2": 203.4
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.386,
+        "box2d": {
+          "x1": 414.01,
+          "y1": 201.72,
+          "x2": 465.61,
+          "y2": 291.17
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.362,
+        "box2d": {
+          "x1": 449.63,
+          "y1": 19.09,
+          "x2": 490.35,
+          "y2": 60.34
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.356,
+        "box2d": {
+          "x1": 6.26,
+          "y1": 64.77,
+          "x2": 84.29,
+          "y2": 119.77
+        }
+      }
+    ]
+  },
+  {
+    "name": "frame_09.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.928,
+        "box2d": {
+          "x1": 88.19,
+          "y1": 313.84,
+          "x2": 305.41,
+          "y2": 421.13
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.856,
+        "box2d": {
+          "x1": 0.16,
+          "y1": 261.91,
+          "x2": 63.93,
+          "y2": 355.65
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.766,
+        "box2d": {
+          "x1": 113.02,
+          "y1": 272.6,
+          "x2": 140.96,
+          "y2": 343.1
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.761,
+        "box2d": {
+          "x1": 477.98,
+          "y1": 105.44,
+          "x2": 574.09,
+          "y2": 207.98
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.716,
+        "box2d": {
+          "x1": 642.65,
+          "y1": 209.02,
+          "x2": 710.45,
+          "y2": 261.06
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.711,
+        "box2d": {
+          "x1": 485.61,
+          "y1": 278.35,
+          "x2": 571.75,
+          "y2": 326.31
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.705,
+        "box2d": {
+          "x1": 281.29,
+          "y1": 274.44,
+          "x2": 369.96,
+          "y2": 321.87
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.64,
+        "box2d": {
+          "x1": 401.1,
+          "y1": 219.36,
+          "x2": 472.42,
+          "y2": 257.25
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.597,
+        "box2d": {
+          "x1": 0.0,
+          "y1": 92.39,
+          "x2": 136.43,
+          "y2": 170.12
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.56,
+        "box2d": {
+          "x1": 265.29,
+          "y1": 80.47,
+          "x2": 321.17,
+          "y2": 110.12
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.511,
+        "box2d": {
+          "x1": 64.93,
+          "y1": 219.47,
+          "x2": 147.02,
+          "y2": 270.27
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.476,
+        "box2d": {
+          "x1": 741.92,
+          "y1": 212.66,
+          "x2": 767.78,
+          "y2": 261.83
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.461,
+        "box2d": {
+          "x1": 653.95,
+          "y1": 187.73,
+          "x2": 699.03,
+          "y2": 251.86
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.444,
+        "box2d": {
+          "x1": 304.37,
+          "y1": 254.51,
+          "x2": 349.33,
+          "y2": 315.24
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.427,
+        "box2d": {
+          "x1": 0.32,
+          "y1": 348.97,
+          "x2": 41.29,
+          "y2": 394.35
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.399,
+        "box2d": {
+          "x1": 67.08,
+          "y1": 164.89,
+          "x2": 135.48,
+          "y2": 199.75
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.395,
+        "box2d": {
+          "x1": 259.41,
+          "y1": 244.5,
+          "x2": 313.49,
+          "y2": 293.01
+        }
+      }
+    ]
+  },
+  {
+    "name": "frame_10.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.928,
+        "box2d": {
+          "x1": 87.35,
+          "y1": 315.38,
+          "x2": 305.14,
+          "y2": 420.83
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.761,
+        "box2d": {
+          "x1": 485.41,
+          "y1": 119.13,
+          "x2": 585.05,
+          "y2": 224.45
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.743,
+        "box2d": {
+          "x1": 337.3,
+          "y1": 115.68,
+          "x2": 392.86,
+          "y2": 150.72
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.721,
+        "box2d": {
+          "x1": 649.39,
+          "y1": 243.82,
+          "x2": 711.83,
+          "y2": 291.82
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.666,
+        "box2d": {
+          "x1": 505.03,
+          "y1": 233.25,
+          "x2": 584.17,
+          "y2": 284.54
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.641,
+        "box2d": {
+          "x1": 0.13,
+          "y1": 103.44,
+          "x2": 61.2,
+          "y2": 156.57
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.634,
+        "box2d": {
+          "x1": 662.2,
+          "y1": 222.03,
+          "x2": 699.77,
+          "y2": 279.29
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.598,
+        "box2d": {
+          "x1": 525.88,
+          "y1": 210.1,
+          "x2": 574.68,
+          "y2": 275.01
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.59,
+        "box2d": {
+          "x1": 371.33,
+          "y1": 275.02,
+          "x2": 455.18,
+          "y2": 323.59
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.588,
+        "box2d": {
+          "x1": 332.28,
+          "y1": 233.28,
+          "x2": 408.09,
+          "y2": 276.66
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.55,
+        "box2d": {
+          "x1": 625.66,
+          "y1": 96.05,
+          "x2": 652.54,
+          "y2": 142.09
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.484,
+        "box2d": {
+          "x1": 136.33,
+          "y1": 268.78,
+          "x2": 160.7,
+          "y2": 339.33
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.469,
+        "box2d": {
+          "x1": 740.18,
+          "y1": 219.44,
+          "x2": 767.78,
+          "y2": 263.92
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.465,
+        "box2d": {
+          "x1": 285.6,
+          "y1": 224.49,
+          "x2": 358.27,
+          "y2": 264.2
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.381,
+        "box2d": {
+          "x1": 398.96,
+          "y1": 256.44,
+          "x2": 447.53,
+          "y2": 316.93
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.362,
+        "box2d": {
+          "x1": 683.1,
+          "y1": 48.89,
+          "x2": 725.59,
+          "y2": 74.83
+        }
+      }
+    ]
+  },
+  {
+    "name": "frame_11.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.915,
+        "box2d": {
+          "x1": 77.71,
+          "y1": 316.12,
+          "x2": 297.28,
+          "y2": 423.24
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.875,
+        "box2d": {
+          "x1": 492.4,
+          "y1": 128.89,
+          "x2": 596.35,
+          "y2": 239.03
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.684,
+        "box2d": {
+          "x1": 557.17,
+          "y1": 269.04,
+          "x2": 628.04,
+          "y2": 317.53
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.664,
+        "box2d": {
+          "x1": 496.39,
+          "y1": 90.39,
+          "x2": 554.45,
+          "y2": 124.18
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.606,
+        "box2d": {
+          "x1": 670.54,
+          "y1": 115.67,
+          "x2": 730.2,
+          "y2": 147.65
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.574,
+        "box2d": {
+          "x1": 204.99,
+          "y1": 243.75,
+          "x2": 282.48,
+          "y2": 283.27
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.545,
+        "box2d": {
+          "x1": 568.74,
+          "y1": 246.76,
+          "x2": 611.97,
+          "y2": 306.29
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.511,
+        "box2d": {
+          "x1": 0.0,
+          "y1": 313.28,
+          "x2": 74.09,
+          "y2": 374.24
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.49,
+        "box2d": {
+          "x1": 288.51,
+          "y1": 265.96,
+          "x2": 370.81,
+          "y2": 312.25
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.488,
+        "box2d": {
+          "x1": 729.75,
+          "y1": 232.66,
+          "x2": 767.68,
+          "y2": 280.71
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.478,
+        "box2d": {
+          "x1": 652.81,
+          "y1": 234.98,
+          "x2": 710.59,
+          "y2": 295.7
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.474,
+        "box2d": {
+          "x1": 0.0,
+          "y1": 300.65,
+          "x2": 53.92,
+          "y2": 368.02
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.455,
+        "box2d": {
+          "x1": 611.87,
+          "y1": 30.53,
+          "x2": 642.32,
+          "y2": 74.97
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.425,
+        "box2d": {
+          "x1": 161.78,
+          "y1": 260.56,
+          "x2": 184.14,
+          "y2": 318.67
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.387,
+        "box2d": {
+          "x1": 568.52,
+          "y1": 127.71,
+          "x2": 621.21,
+          "y2": 167.65
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.386,
+        "box2d": {
+          "x1": 229.69,
+          "y1": 218.04,
+          "x2": 269.19,
+          "y2": 276.6
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.37,
+        "box2d": {
+          "x1": 285.39,
+          "y1": 145.01,
+          "x2": 325.38,
+          "y2": 217.42
+        }
+      }
+    ]
+  },
+  {
+    "name": "frame_12.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.91,
+        "box2d": {
+          "x1": 43.99,
+          "y1": 316.9,
+          "x2": 265.35,
+          "y2": 424.64
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.882,
+        "box2d": {
+          "x1": 498.43,
+          "y1": 138.9,
+          "x2": 604.73,
+          "y2": 251.65
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.734,
+        "box2d": {
+          "x1": 434.55,
+          "y1": 288.93,
+          "x2": 516.4,
+          "y2": 338.55
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.69,
+        "box2d": {
+          "x1": 566.03,
+          "y1": 276.28,
+          "x2": 626.66,
+          "y2": 334.7
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.656,
+        "box2d": {
+          "x1": 646.43,
+          "y1": 255.34,
+          "x2": 715.97,
+          "y2": 302.09
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.616,
+        "box2d": {
+          "x1": 542.34,
+          "y1": 119.39,
+          "x2": 599.48,
+          "y2": 152.07
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.599,
+        "box2d": {
+          "x1": 181.89,
+          "y1": 255.26,
+          "x2": 208.32,
+          "y2": 319.59
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.527,
+        "box2d": {
+          "x1": 739.14,
+          "y1": 71.89,
+          "x2": 757.52,
+          "y2": 117.69
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.506,
+        "box2d": {
+          "x1": 453.01,
+          "y1": 265.84,
+          "x2": 494.76,
+          "y2": 323.5
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.455,
+        "box2d": {
+          "x1": 663.31,
+          "y1": 234.16,
+          "x2": 701.12,
+          "y2": 292.5
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.434,
+        "box2d": {
+          "x1": 530.0,
+          "y1": 96.15,
+          "x2": 545.62,
+          "y2": 139.13
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.429,
+        "box2d": {
+          "x1": 362.44,
+          "y1": 0.58,
+          "x2": 424.2,
+          "y2": 17.81
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.427,
+        "box2d": {
+          "x1": 310.39,
+          "y1": 58.82,
+          "x2": 353.06,
+          "y2": 87.93
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.423,
+        "box2d": {
+          "x1": 609.52,
+          "y1": 28.02,
+          "x2": 640.98,
+          "y2": 71.44
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.374,
+        "box2d": {
+          "x1": 313.18,
+          "y1": 378.84,
+          "x2": 345.77,
+          "y2": 432.0
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.363,
+        "box2d": {
+          "x1": 664.86,
+          "y1": 234.08,
+          "x2": 700.54,
+          "y2": 273.92
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.36,
+        "box2d": {
+          "x1": 392.53,
+          "y1": 117.65,
+          "x2": 450.06,
+          "y2": 155.73
+        }
+      }
+    ]
+  },
+  {
+    "name": "frame_13.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.877,
+        "box2d": {
+          "x1": 0.11,
+          "y1": 320.51,
+          "x2": 209.49,
+          "y2": 428.23
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.869,
+        "box2d": {
+          "x1": 503.33,
+          "y1": 147.94,
+          "x2": 615.23,
+          "y2": 263.16
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.792,
+        "box2d": {
+          "x1": 660.0,
+          "y1": 108.95,
+          "x2": 718.01,
+          "y2": 152.77
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.678,
+        "box2d": {
+          "x1": 464.55,
+          "y1": 314.66,
+          "x2": 529.6,
+          "y2": 386.07
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.638,
+        "box2d": {
+          "x1": 721.11,
+          "y1": 75.5,
+          "x2": 741.05,
+          "y2": 125.2
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.626,
+        "box2d": {
+          "x1": 292.99,
+          "y1": 301.46,
+          "x2": 381.81,
+          "y2": 344.9
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.613,
+        "box2d": {
+          "x1": 387.89,
+          "y1": 35.41,
+          "x2": 429.06,
+          "y2": 66.68
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.593,
+        "box2d": {
+          "x1": 479.55,
+          "y1": 97.39,
+          "x2": 500.1,
+          "y2": 143.46
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.573,
+        "box2d": {
+          "x1": 408.9,
+          "y1": 231.14,
+          "x2": 469.29,
+          "y2": 287.66
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.563,
+        "box2d": {
+          "x1": 202.69,
+          "y1": 241.95,
+          "x2": 226.09,
+          "y2": 314.78
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.518,
+        "box2d": {
+          "x1": 543.87,
+          "y1": 249.77,
+          "x2": 602.63,
+          "y2": 312.77
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.495,
+        "box2d": {
+          "x1": 397.48,
+          "y1": 122.32,
+          "x2": 459.75,
+          "y2": 156.42
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.491,
+        "box2d": {
+          "x1": 607.1,
+          "y1": 23.99,
+          "x2": 637.92,
+          "y2": 68.84
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.491,
+        "box2d": {
+          "x1": 530.75,
+          "y1": 273.17,
+          "x2": 603.79,
+          "y2": 318.94
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.481,
+        "box2d": {
+          "x1": 314.17,
+          "y1": 277.04,
+          "x2": 357.45,
+          "y2": 339.28
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.472,
+        "box2d": {
+          "x1": 306.11,
+          "y1": 337.68,
+          "x2": 347.08,
+          "y2": 412.1
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.404,
+        "box2d": {
+          "x1": 414.07,
+          "y1": 101.42,
+          "x2": 457.53,
+          "y2": 145.94
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.395,
+        "box2d": {
+          "x1": 235.75,
+          "y1": 129.24,
+          "x2": 291.22,
+          "y2": 171.45
+        }
+      }
+    ]
+  },
+  {
+    "name": "frame_14.jpg",
+    "labels": [
+      {
+        "category": "car",
+        "confidence": 0.902,
+        "box2d": {
+          "x1": 0.99,
+          "y1": 323.91,
+          "x2": 144.66,
+          "y2": 421.78
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.845,
+        "box2d": {
+          "x1": 510.7,
+          "y1": 158.28,
+          "x2": 625.41,
+          "y2": 277.9
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.759,
+        "box2d": {
+          "x1": 410.22,
+          "y1": 279.95,
+          "x2": 490.84,
+          "y2": 329.24
+        }
+      },
+      {
+        "category": "car",
+        "confidence": 0.751,
+        "box2d": {
+          "x1": 302.35,
+          "y1": 1.15,
+          "x2": 369.42,
+          "y2": 52.15
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.737,
+        "box2d": {
+          "x1": 311.42,
+          "y1": 368.85,
+          "x2": 397.0,
+          "y2": 429.86
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.696,
+        "box2d": {
+          "x1": 150.7,
+          "y1": 301.71,
+          "x2": 240.85,
+          "y2": 353.07
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.644,
+        "box2d": {
+          "x1": 421.53,
+          "y1": 124.58,
+          "x2": 469.84,
+          "y2": 167.58
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.547,
+        "box2d": {
+          "x1": 222.33,
+          "y1": 230.87,
+          "x2": 254.5,
+          "y2": 303.14
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.541,
+        "box2d": {
+          "x1": 404.99,
+          "y1": 130.34,
+          "x2": 469.71,
+          "y2": 167.88
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.537,
+        "box2d": {
+          "x1": 101.1,
+          "y1": 152.5,
+          "x2": 163.14,
+          "y2": 190.66
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.488,
+        "box2d": {
+          "x1": 262.72,
+          "y1": 121.33,
+          "x2": 324.77,
+          "y2": 151.81
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.485,
+        "box2d": {
+          "x1": 365.71,
+          "y1": 340.34,
+          "x2": 395.8,
+          "y2": 411.72
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.436,
+        "box2d": {
+          "x1": 281.05,
+          "y1": 100.77,
+          "x2": 322.62,
+          "y2": 144.31
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.404,
+        "box2d": {
+          "x1": 490.7,
+          "y1": 252.57,
+          "x2": 526.61,
+          "y2": 314.38
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.401,
+        "box2d": {
+          "x1": 668.45,
+          "y1": 102.76,
+          "x2": 725.93,
+          "y2": 142.14
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.397,
+        "box2d": {
+          "x1": 546.73,
+          "y1": 120.4,
+          "x2": 600.03,
+          "y2": 154.4
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.38,
+        "box2d": {
+          "x1": 74.67,
+          "y1": 61.18,
+          "x2": 97.03,
+          "y2": 111.17
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.378,
+        "box2d": {
+          "x1": 339.19,
+          "y1": 347.28,
+          "x2": 375.93,
+          "y2": 412.45
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.375,
+        "box2d": {
+          "x1": 176.56,
+          "y1": 284.78,
+          "x2": 211.05,
+          "y2": 343.13
+        }
+      },
+      {
+        "category": "pedestrian",
+        "confidence": 0.372,
+        "box2d": {
+          "x1": 427.1,
+          "y1": 98.42,
+          "x2": 453.66,
+          "y2": 150.18
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.369,
+        "box2d": {
+          "x1": 1.51,
+          "y1": 254.79,
+          "x2": 79.06,
+          "y2": 301.11
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.367,
+        "box2d": {
+          "x1": 342.05,
+          "y1": 372.23,
+          "x2": 396.34,
+          "y2": 420.59
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.364,
+        "box2d": {
+          "x1": 407.92,
+          "y1": 118.66,
+          "x2": 471.77,
+          "y2": 166.43
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.363,
+        "box2d": {
+          "x1": 596.57,
+          "y1": 111.32,
+          "x2": 642.83,
+          "y2": 141.94
+        }
+      },
+      {
+        "category": "motorcycle",
+        "confidence": 0.351,
+        "box2d": {
+          "x1": 484.34,
+          "y1": 273.01,
+          "x2": 541.53,
+          "y2": 326.72
+        }
+      }
+    ]
+  }
+]

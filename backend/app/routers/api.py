@@ -12,10 +12,27 @@ from sqlalchemy.orm import Session
 from app.database import get_db, UPLOADS
 from app.models import Dataset, Sample, Annotation, Prediction, QCIssue, Settings
 from app.schemas import ScoringSettings
-from app.schemas.qc import QCConfig, IngestPredictionsRequest, QCIssueResolveRequest, CVATConfigRequest
+from app.schemas.qc import (
+    QCConfig,
+    IngestPredictionsRequest,
+    QCIssueResolveRequest,
+    CVATConfigRequest,
+    StartQueueRequest,
+    FrameQueueStatusResponse,
+    FrameAuditResponse,
+    CVATSyncResponse,
+    CVATVerifyFrameResponse,
+    CVATPushRequest,
+    CVATPushResponse
+)
 from app.services.pipeline import store_files, import_dataset, sample_dict, dataset_dict
 from app.services.qc_engine import (
     run_dataset_qc_audit,
+    audit_single_frame,
+    queue_manager,
+    sync_cvat_dataset_annotations,
+    verify_and_sync_sample_from_cvat,
+    push_dataset_annotations_to_cvat,
     ingest_predictions_data,
     generate_benchmark_synthetic_predictions,
     run_pretrained_detector_service
@@ -224,6 +241,150 @@ def get_qc_queue(id: int, include_clean: bool = False, db: Session = Depends(get
     samples.sort(key=lambda x: (-x['qc_score'], x['id']))
     return samples
 
+# --- Streaming Incremental Frame Processing & Two-Way CVAT Sync (P0) ---
+
+@router.post('/datasets/{id}/qc/frame/{sample_id}/audit', response_model=FrameAuditResponse)
+def audit_single_frame_endpoint(
+    id: int,
+    sample_id: int,
+    conf_thresh: float = 0.35,
+    force_repredict: bool = False,
+    db: Session = Depends(get_db)
+):
+    """
+    On-demand single-frame audit. Executes detection (if required/empty), matches against annotations,
+    updates DB issues, and immediately returns the prioritized summary for this frame.
+    """
+    require(db, Dataset, id)
+    sample = require(db, Sample, sample_id)
+    if sample.dataset_id != id:
+        raise HTTPException(400, "Sample does not belong to the specified dataset")
+    try:
+        summary = audit_single_frame(
+            db,
+            sample_id,
+            run_detector=force_repredict or not sample.predictions,
+            conf_thresh=conf_thresh
+        )
+        return {
+            'sample_summary': summary,
+            'predictions_count': len(sample.predictions)
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Single frame audit failed: {str(e)}")
+
+@router.post('/datasets/{id}/qc/queue/start', response_model=FrameQueueStatusResponse)
+def start_qc_queue(
+    id: int,
+    payload: Optional[StartQueueRequest] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Start background frame-by-frame streaming QC worker.
+    Processes one frame at a time, allowing live progress updates.
+    """
+    require(db, Dataset, id)
+    conf_thresh = payload.conf_thresh if (payload and payload.conf_thresh) else 0.35
+    sample_ids = payload.sample_ids if payload else None
+    force_repredict = payload.force_repredict if payload and payload.force_repredict is not None else False
+
+    status = queue_manager.start_queue(
+        dataset_id=id,
+        sample_ids=sample_ids,
+        conf_thresh=conf_thresh,
+        force_repredict=force_repredict
+    )
+    return status
+
+@router.get('/datasets/{id}/qc/queue/status', response_model=FrameQueueStatusResponse)
+def get_qc_queue_status(id: int, db: Session = Depends(get_db)):
+    """
+    Poll live progress of the incremental QC queue worker.
+    """
+    require(db, Dataset, id)
+    return queue_manager.get_status(id)
+
+@router.post('/datasets/{id}/qc/queue/stop', response_model=FrameQueueStatusResponse)
+def stop_qc_queue(id: int, db: Session = Depends(get_db)):
+    """
+    Pause or stop the running background QC queue.
+    """
+    require(db, Dataset, id)
+    queue_manager.stop_queue(id)
+    return queue_manager.get_status(id)
+
+@router.post('/datasets/{id}/qc/cvat-sync', response_model=CVATSyncResponse)
+async def sync_cvat_annotations_endpoint(
+    id: int,
+    file: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Synchronize annotations from CVAT (the single source of truth).
+    Accepts updated CVAT XML or BDD100K JSON export, updates annotations,
+    re-audits affected frames, and auto-resolves fixed issues.
+    """
+    require(db, Dataset, id)
+    content = None
+    if file and file.filename:
+        content = await file.read()
+    try:
+        result = sync_cvat_dataset_annotations(db, id, content=content)
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"CVAT Sync failed: {str(e)}")
+
+@router.post('/datasets/{id}/qc/frame/{sample_id}/cvat-verify', response_model=CVATVerifyFrameResponse)
+def verify_cvat_frame_endpoint(
+    id: int,
+    sample_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Re-audit an individual frame on-demand after reviewer made corrections in CVAT.
+    Validates whether flagged issues have been properly fixed.
+    """
+    require(db, Dataset, id)
+    sample = require(db, Sample, sample_id)
+    if sample.dataset_id != id:
+        raise HTTPException(400, "Sample does not belong to the specified dataset")
+    try:
+        result = verify_and_sync_sample_from_cvat(db, sample_id)
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"CVAT frame verification failed: {str(e)}")
+
+@router.post('/datasets/{id}/qc/cvat-push', response_model=CVATPushResponse)
+def push_to_cvat_endpoint(
+    id: int,
+    payload: Optional[CVATPushRequest] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Push verified/human-in-the-loop annotations from AnnoPilot directly into CVAT Task/Job
+    using the CVAT REST API with Personal Access Token (PAT).
+    """
+    require(db, Dataset, id)
+    token = payload.token if payload else None
+    cvat_base_url = payload.cvat_base_url if payload else None
+    cvat_task_id = payload.cvat_task_id if payload else None
+    cvat_job_id = payload.cvat_job_id if payload else None
+    mode = payload.mode if payload and payload.mode else "replace"
+
+    try:
+        result = push_dataset_annotations_to_cvat(
+            db,
+            id,
+            token=token,
+            cvat_base_url=cvat_base_url,
+            cvat_task_id=cvat_task_id,
+            cvat_job_id=cvat_job_id,
+            mode=mode
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"CVAT Push failed: {str(e)}")
+
 @router.put('/datasets/{id}/cvat-config')
 def update_cvat_config(id: int, body: CVATConfigRequest, db: Session = Depends(get_db)):
     dataset = require(db, Dataset, id)
@@ -233,6 +394,8 @@ def update_cvat_config(id: int, body: CVATConfigRequest, db: Session = Depends(g
         dataset.cvat_task_id = body.cvat_task_id
     if body.cvat_job_id is not None:
         dataset.cvat_job_id = body.cvat_job_id
+    if body.cvat_token is not None:
+        dataset.cvat_token = body.cvat_token
     db.commit()
     return dataset_dict(dataset)
 

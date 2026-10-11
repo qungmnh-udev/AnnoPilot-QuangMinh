@@ -35,6 +35,8 @@ def initialize_database():
                 connection.execute(text('ALTER TABLE datasets ADD COLUMN cvat_job_id INTEGER'))
             if 'cvat_base_url' not in cols:
                 connection.execute(text("ALTER TABLE datasets ADD COLUMN cvat_base_url VARCHAR DEFAULT 'http://localhost:8080'"))
+            if 'cvat_token' not in cols:
+                connection.execute(text("ALTER TABLE datasets ADD COLUMN cvat_token VARCHAR DEFAULT 'ISQjKy3C.KDdn6nz1T65dB0A0s1yhb2ZWIQVcSDAO'"))
 
         if 'samples' in table_names:
             cols = {col['name'] for col in insp.get_columns('samples')}

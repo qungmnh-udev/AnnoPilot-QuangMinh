@@ -23,6 +23,8 @@ import {
   Plus,
   Search,
   ShieldAlert,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -221,6 +223,7 @@ function SampleTable({
 
 export default function App() {
   const { page, navigate } = usePageNavigation();
+  const [isNavOpen, setIsNavOpen] = useState<boolean>(true);
   const [datasetStatus, setDatasetStatus] = useState<DatasetStatus>("loading");
   const [guardFeature, setGuardFeature] = useState<Page | null>(null);
   const [pendingFeature, setPendingFeature] = useState<Page | null>(null);
@@ -288,6 +291,23 @@ export default function App() {
   useEffect(() => {
     void act("Loading workspace…", () => load());
   }, []);
+
+  // Keyboard shortcut Ctrl+B / Cmd+B to toggle sidebar
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) {
+          return;
+        }
+        e.preventDefault();
+        setIsNavOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   useEffect(() => {
     if (datasetStatus === "ready" && !dataset && isDatasetPage(page) && !upload)
       setGuardFeature(page);
@@ -339,21 +359,46 @@ export default function App() {
     </a>
   );
   return (
-    <div className="app">
+    <div className={`app ${isNavOpen ? "" : "nav-collapsed"}`}>
       <aside>
-        <button
-          className="brand"
-          aria-label="AnnoPilot Home"
-          onClick={() => navigate("Home")}
-        >
-          <div className="brand-icon">
-            <ScanLine />
+        {isNavOpen ? (
+          <div className="aside-top-row">
+            <div className="brand">
+              <div className="brand-icon">
+                <ScanLine size={20} />
+              </div>
+              <div className="brand-text">
+                AnnoPilot<small>REVIEW INTELLIGENCE</small>
+              </div>
+            </div>
+            <button
+              className="nav-toggle-btn"
+              onClick={() => setIsNavOpen(false)}
+              title="Thu gọn sidebar (Ctrl+B)"
+              aria-label="Thu gọn sidebar"
+            >
+              <PanelLeftClose size={18} />
+            </button>
           </div>
-          <div>
-            AnnoPilot<small>REVIEW INTELLIGENCE</small>
-          </div>
-        </button>
-        <div className="nav-label">WORKSPACE</div>
+        ) : (
+          <>
+            <div className="aside-top-row collapsed-brand-row">
+              <button
+                className="brand-icon-btn"
+                onClick={() => setIsNavOpen(true)}
+                title="AnnoPilot · Bấm để mở rộng sidebar (Ctrl+B)"
+                aria-label="Mở rộng sidebar"
+              >
+                <div className="brand-icon">
+                  <ScanLine size={20} />
+                </div>
+              </button>
+            </div>
+            <div className="nav-collapsed-divider" />
+          </>
+        )}
+
+        {isNavOpen && <div className="nav-label">WORKSPACE</div>}
         <nav>
           {nav.map(([name, Icon]) => (
             <button
@@ -361,17 +406,33 @@ export default function App() {
               onClick={() => requestPage(name)}
               className={page === name ? "active" : ""}
               aria-current={page === name ? "page" : undefined}
+              title={name}
             >
               <Icon size={19} />
-              {name}
-              {page === name && <span className="nav-dot" />}
+              {isNavOpen && <span>{name}</span>}
+              {isNavOpen && page === name && <span className="nav-dot" />}
             </button>
           ))}
         </nav>
-        <div className="sidebar-bottom">
-          <span className="online-dot" /> Local workspace
-          <small>Human judgment. Informed by data.</small>
-        </div>
+
+        {isNavOpen ? (
+          <div className="sidebar-bottom">
+            <span className="online-dot" /> Local workspace
+            <small>Human judgment. Informed by data.</small>
+          </div>
+        ) : (
+          <div className="sidebar-collapsed-footer">
+            <button
+              className="nav-toggle-btn collapsed-expand-btn"
+              onClick={() => setIsNavOpen(true)}
+              title="Mở rộng sidebar (Ctrl+B)"
+              aria-label="Mở rộng sidebar"
+            >
+              <PanelLeftOpen size={19} />
+            </button>
+            <div className="collapsed-status-dot" title="Local workspace · Online" />
+          </div>
+        )}
       </aside>
       <div className="main">
         <header>

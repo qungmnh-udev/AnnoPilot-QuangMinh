@@ -1,0 +1,2703 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AnnoPilot — Model-Assisted QC cho Object Detection | Tổng hợp Nghiên cứu & Dự án Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0b0f19;
+      --bg-secondary: #111827;
+      --bg-tertiary: #1f2937;
+      --bg-card: rgba(17, 24, 39, 0.85);
+      --bg-glass: rgba(255, 255, 255, 0.03);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-focus: #38bdf8;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --text-dim: #6b7280;
+      --primary: #38bdf8;
+      --primary-hover: #0284c7;
+      --primary-glow: rgba(56, 189, 248, 0.25);
+      --teal: #14b8a6;
+      --teal-glow: rgba(20, 184, 166, 0.25);
+      --amber: #f59e0b;
+      --amber-glow: rgba(245, 158, 11, 0.25);
+      --rose: #f43f5e;
+      --rose-glow: rgba(244, 63, 94, 0.25);
+      --indigo: #6366f1;
+      --emerald: #10b981;
+      --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', Consolas, monospace;
+      --radius-sm: 6px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+      --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+      --shadow-glow: 0 0 25px var(--primary-glow);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      line-height: 1.65;
+      font-size: 15px;
+      overflow-x: hidden;
+      background-image:
+        radial-gradient(circle at 15% 10%, rgba(56, 189, 248, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 85% 60%, rgba(99, 102, 241, 0.06) 0%, transparent 45%),
+        radial-gradient(circle at 50% 90%, rgba(20, 184, 166, 0.05) 0%, transparent 40%);
+      background-attachment: fixed;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--bg-primary);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--bg-tertiary);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--primary-hover);
+    }
+
+    /* Container */
+    .container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Sticky Navigation Header */
+    header.sticky-nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(11, 15, 25, 0.88);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border-color);
+      transition: all 0.3s ease;
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: var(--text-main);
+    }
+
+    .brand-logo {
+      width: 34px;
+      height: 34px;
+      background: linear-gradient(135deg, var(--primary), var(--indigo));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 18px;
+      color: #fff;
+      box-shadow: 0 0 12px var(--primary-glow);
+    }
+
+    .brand-text h1 {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .brand-text span {
+      font-size: 11px;
+      color: var(--primary);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      font-weight: 600;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 6px;
+      list-style: none;
+    }
+
+    .nav-link {
+      padding: 8px 14px;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .nav-link:hover,
+    .nav-link.active {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .nav-link.active {
+      color: var(--primary);
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 70px 0 50px;
+      position: relative;
+    }
+
+    .hero-badge-group {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-primary {
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--primary);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    .badge-teal {
+      background: rgba(20, 184, 166, 0.12);
+      color: var(--teal);
+      border: 1px solid rgba(20, 184, 166, 0.3);
+    }
+
+    .badge-amber {
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--amber);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .badge-rose {
+      background: rgba(244, 63, 94, 0.12);
+      color: var(--rose);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+    }
+
+    .badge-emerald {
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--emerald);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .hero-title {
+      font-size: 38px;
+      font-weight: 800;
+      line-height: 1.25;
+      letter-spacing: -0.8px;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, #ffffff 30%, #cbd5e1 70%, #38bdf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-subtitle {
+      font-size: 17px;
+      color: var(--text-muted);
+      max-width: 980px;
+      margin-bottom: 36px;
+      line-height: 1.6;
+    }
+
+    /* Hero Quick KPI Cards */
+    .hero-kpis {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+
+    .kpi-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+      backdrop-filter: blur(8px);
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(56, 189, 248, 0.3);
+    }
+
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--primary), transparent);
+    }
+
+    .kpi-card.teal::before {
+      background: linear-gradient(90deg, var(--teal), transparent);
+    }
+
+    .kpi-card.amber::before {
+      background: linear-gradient(90deg, var(--amber), transparent);
+    }
+
+    .kpi-card.rose::before {
+      background: linear-gradient(90deg, var(--rose), transparent);
+    }
+
+    .kpi-card.emerald::before {
+      background: linear-gradient(90deg, var(--emerald), transparent);
+    }
+
+    .kpi-val {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      margin-bottom: 4px;
+      font-family: var(--font-mono);
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+    }
+
+    .kpi-val span {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .kpi-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .kpi-desc {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 6px;
+    }
+
+    /* Section Styles */
+    section.content-section {
+      padding: 60px 0;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .section-header {
+      margin-bottom: 36px;
+    }
+
+    .section-eyebrow {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--primary);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-eyebrow::before {
+      content: '';
+      width: 14px;
+      height: 2px;
+      background: var(--primary);
+      border-radius: 2px;
+    }
+
+    .section-title {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 10px;
+      color: #fff;
+    }
+
+    .section-desc {
+      font-size: 16px;
+      color: var(--text-muted);
+      max-width: 860px;
+    }
+
+    /* Cards & Layout */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      margin-bottom: 24px;
+      backdrop-filter: blur(8px);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-title svg {
+      color: var(--primary);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    /* Alert / Callout Box */
+    .callout {
+      padding: 18px 20px;
+      border-radius: var(--radius-md);
+      margin: 20px 0;
+      border-left: 4px solid var(--primary);
+      background: rgba(56, 189, 248, 0.05);
+      border-color: var(--primary);
+    }
+
+    .callout.amber {
+      border-color: var(--amber);
+      background: rgba(245, 158, 11, 0.05);
+    }
+
+    .callout.rose {
+      border-color: var(--rose);
+      background: rgba(244, 63, 94, 0.05);
+    }
+
+    .callout.teal {
+      border-color: var(--teal);
+      background: rgba(20, 184, 166, 0.05);
+    }
+
+    .callout-title {
+      font-weight: 700;
+      font-size: 14px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .callout.primary .callout-title {
+      color: var(--primary);
+    }
+
+    .callout.amber .callout-title {
+      color: var(--amber);
+    }
+
+    .callout.rose .callout-title {
+      color: var(--rose);
+    }
+
+    .callout.teal .callout-title {
+      color: var(--teal);
+    }
+
+    /* Mathematical Formula Boxes */
+    .math-block {
+      background: #090d16;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: var(--radius-sm);
+      padding: 16px 20px;
+      margin: 16px 0;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: #38bdf8;
+      overflow-x: auto;
+      text-align: center;
+      box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4);
+    }
+
+    .math-vars {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+      font-size: 13px;
+    }
+
+    .math-var-item {
+      display: flex;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.02);
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .math-var-name {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--primary);
+    }
+
+    /* Diagram / Flowchart Styling */
+    .flowchart-container {
+      background: #0d121f;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      margin: 20px 0;
+      overflow-x: auto;
+    }
+
+    .flow-steps {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 800px;
+      position: relative;
+    }
+
+    .flow-node {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      text-align: center;
+      flex: 1;
+      position: relative;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.2s ease;
+    }
+
+    .flow-node:hover {
+      border-color: var(--primary);
+      transform: translateY(-2px);
+    }
+
+    .flow-node.highlight {
+      border-color: var(--primary);
+      background: rgba(56, 189, 248, 0.08);
+      box-shadow: 0 0 15px var(--primary-glow);
+    }
+
+    .flow-node-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+
+    .flow-node-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .flow-arrow {
+      color: var(--primary);
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    /* Comparison Tables */
+    .data-table-wrapper {
+      overflow-x: auto;
+      margin: 20px 0;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+    }
+
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    table.data-table th {
+      background: #111827;
+      color: var(--text-main);
+      padding: 12px 16px;
+      font-weight: 700;
+      border-bottom: 2px solid var(--border-color);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    table.data-table td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color);
+      color: var(--text-muted);
+    }
+
+    table.data-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    table.data-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+      color: var(--text-main);
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+    }
+
+    .pill-high {
+      background: rgba(244, 63, 94, 0.15);
+      color: #fb7185;
+      border: 1px solid rgba(244, 63, 94, 0.3);
+    }
+
+    .pill-med {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .pill-clean {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    /* Interactive Visual Diff Mockup Demo */
+    .demo-wrapper {
+      background: #090d16;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      margin: 30px 0;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .demo-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .demo-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .demo-controls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .demo-btn {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 6px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .demo-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .demo-btn.active {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .demo-btn.cvat {
+      background: #0284c7;
+      color: #fff;
+      border: none;
+    }
+
+    .demo-btn.cvat:hover {
+      background: #0369a1;
+    }
+
+    .demo-main {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 960px) {
+      .demo-main {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Queue column */
+    .demo-queue {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      max-height: 480px;
+    }
+
+    .queue-title {
+      padding: 12px 16px;
+      background: #111827;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 13px;
+      font-weight: 700;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .queue-items {
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .queue-item {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .queue-item:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .queue-item.selected {
+      background: rgba(56, 189, 248, 0.1);
+      border-left: 3px solid var(--primary);
+    }
+
+    .queue-item-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+
+    .queue-filename {
+      font-weight: 600;
+      color: #fff;
+      font-family: var(--font-mono);
+    }
+
+    .queue-item-meta {
+      display: flex;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* Canvas Viewport */
+    .demo-viewport {
+      background: #050811;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      position: relative;
+      height: 480px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .canvas-stage {
+      flex: 1;
+      position: relative;
+      background: #0f172a;
+      background-image:
+        radial-gradient(ellipse at center, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.95) 100%),
+        repeating-linear-gradient(0deg, transparent, transparent 40px, rgba(255, 255, 255, 0.02) 40px, rgba(255, 255, 255, 0.02) 41px);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .mock-road-scene {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      opacity: 0.25;
+      background-size: cover;
+      background-position: center;
+      filter: blur(1px);
+    }
+
+    /* Simulated BBoxes */
+    .sim-box {
+      position: absolute;
+      border-radius: 3px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+
+    .sim-tag {
+      position: absolute;
+      top: -22px;
+      left: -1px;
+      padding: 2px 6px;
+      border-radius: 3px 3px 0 0;
+      font-size: 10px;
+      white-space: nowrap;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    /* Ground truth teal */
+    .box-gt {
+      border: 2px solid var(--teal);
+      background: rgba(20, 184, 166, 0.1);
+    }
+
+    .box-gt .sim-tag {
+      background: var(--teal);
+      color: #042f2e;
+    }
+
+    /* Model prediction orange dashed */
+    .box-model {
+      border: 2px dashed var(--amber);
+      background: rgba(245, 158, 11, 0.1);
+    }
+
+    .box-model .sim-tag {
+      background: var(--amber);
+      color: #451a03;
+    }
+
+    /* Suspicious issue red pulsating */
+    .box-issue {
+      border: 2px solid var(--rose);
+      background: rgba(244, 63, 94, 0.18);
+      box-shadow: 0 0 16px var(--rose-glow);
+      animation: pulse-glow 2s infinite;
+    }
+
+    .box-issue .sim-tag {
+      background: var(--rose);
+      color: #fff;
+    }
+
+    @keyframes pulse-glow {
+
+      0%,
+      100% {
+        box-shadow: 0 0 10px var(--rose-glow);
+        border-color: var(--rose);
+      }
+
+      50% {
+        box-shadow: 0 0 24px var(--rose-glow);
+        border-color: #fda4af;
+      }
+    }
+
+    /* Canvas Action Panel */
+    .canvas-actions {
+      padding: 12px 18px;
+      background: rgba(17, 24, 39, 0.95);
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .issue-info-text {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .issue-info-text strong {
+      color: #fff;
+    }
+
+    /* Code Blocks */
+    .code-container {
+      background: #070a12;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      margin: 16px 0;
+      overflow: hidden;
+      font-family: var(--font-mono);
+      font-size: 13px;
+    }
+
+    .code-header {
+      background: #111827;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--text-dim);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .code-copy-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 11px;
+      font-family: var(--font-sans);
+      transition: color 0.15s ease;
+    }
+
+    .code-copy-btn:hover {
+      color: #fff;
+    }
+
+    pre.code-block {
+      padding: 16px 20px;
+      overflow-x: auto;
+      color: #e2e8f0;
+      line-height: 1.55;
+    }
+
+    /* Tabs Component */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 20px;
+      gap: 8px;
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      padding: 10px 18px;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-muted);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: var(--font-sans);
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .tab-btn:hover {
+      color: #fff;
+    }
+
+    .tab-btn.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+
+    .tab-pane {
+      display: none;
+    }
+
+    .tab-pane.active {
+      display: block;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border-color);
+      padding: 40px 0 60px;
+      margin-top: 60px;
+      background: #090d16;
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+
+    .footer-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .hero-title {
+        font-size: 28px;
+      }
+
+      .hero-kpis {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .grid-2,
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+
+      .nav-links {
+        display: none;
+      }
+    }
+  
+    /* KaTeX Typography Overrides */
+    .katex {
+      font-size: 1.06em;
+      color: #e2e8f0;
+    }
+    .katex-display {
+      margin: 10px 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 6px 0;
+    }
+    .katex-display > .katex {
+      color: #38bdf8;
+    }
+
+    /* Math Pipeline Visual Styles */
+    .math-pipeline {
+      display: grid;
+      grid-template-columns: 1fr 40px 1.25fr 40px 1fr;
+      align-items: center;
+      gap: 12px;
+      margin: 24px 0 20px;
+    }
+    @media (max-width: 992px) {
+      .math-pipeline {
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+      .math-pipeline-arrow {
+        transform: rotate(90deg);
+        margin: 4px auto;
+      }
+    }
+    .pipeline-card {
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 18px;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    .pipeline-card:hover {
+      border-color: rgba(56, 189, 248, 0.4);
+      transform: translateY(-2px);
+    }
+    .pipeline-card.input-card {
+      border-top: 3px solid var(--primary);
+    }
+    .pipeline-card.engine-card {
+      border-top: 3px solid var(--teal);
+      background: rgba(20, 184, 166, 0.05);
+      border-color: rgba(20, 184, 166, 0.3);
+      box-shadow: 0 0 20px var(--teal-glow);
+    }
+    .pipeline-card.output-card {
+      border-top: 3px solid var(--rose);
+      background: rgba(244, 63, 94, 0.05);
+      border-color: rgba(244, 63, 94, 0.3);
+      box-shadow: 0 0 20px var(--rose-glow);
+    }
+    .pipeline-card-header {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .math-pipeline-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      color: var(--primary);
+      font-weight: 800;
+    }
+
+    /* 5-Tuple Visual Grid */
+    .tuple-visual-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin: 18px 0;
+    }
+    @media (max-width: 1100px) {
+      .tuple-visual-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+    @media (max-width: 640px) {
+      .tuple-visual-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .tuple-item-card {
+      background: rgba(17, 24, 39, 0.85);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      transition: all 0.2s ease;
+    }
+    .tuple-item-card:hover {
+      border-color: rgba(56, 189, 248, 0.4);
+      background: rgba(17, 24, 39, 0.98);
+      transform: translateY(-2px);
+    }
+    .tuple-badge {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .tuple-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 6px;
+    }
+    .tuple-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Mini Visual Logic Box */
+    .mini-scene-box {
+      background: #050811;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      height: 110px;
+      position: relative;
+      margin: 12px 0;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-image: radial-gradient(circle at center, rgba(30, 41, 59, 0.6) 0%, #050811 100%);
+    }
+
+    /* Interactive QC Calculator Widget */
+    .qc-calc-widget {
+      background: #090d18;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: var(--radius-md);
+      padding: 22px;
+      margin: 26px 0 10px;
+      box-shadow: 0 0 25px rgba(56, 189, 248, 0.1);
+    }
+    .calc-widget-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .calc-controls-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.3fr;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 860px) {
+      .calc-controls-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .calc-field label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .calc-field label strong {
+      color: #38bdf8;
+      font-family: var(--font-mono);
+      font-size: 13px;
+    }
+    .calc-field input[type="range"] {
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: #1f2937;
+      outline: none;
+      -webkit-appearance: none;
+      cursor: pointer;
+    }
+    .calc-field input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--primary);
+      box-shadow: 0 0 10px var(--primary-glow);
+    }
+    .calc-radio-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .calc-radio-btn {
+      padding: 6px 10px;
+      background: #111827;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .calc-radio-btn.active {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: var(--primary);
+      color: #fff;
+    }
+    .calc-output-panel {
+      background: rgba(17, 24, 39, 0.9);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+    .calc-output-formula {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: #cbd5e1;
+    }
+    .calc-output-score {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+  </style>
+  <!-- KaTeX for beautiful mathematical typography -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"
+    onload="renderMathInElement(document.body, {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '$', right: '$', display: false},
+        {left: '\\[', right: '\\]', display: true},
+        {left: '\\(', right: '\\)', display: false}
+      ],
+      throwOnError: false
+    });"></script>
+</head>
+
+<body>
+
+  <!-- Sticky Header -->
+  <header class="sticky-nav">
+    <div class="container nav-inner">
+      <a href="#hero" class="brand">
+        <div class="brand-logo">A</div>
+        <div class="brand-text">
+          <h1>AnnoPilot QC</h1>
+          <span>Autonomous Driving Quality Platform</span>
+        </div>
+      </a>
+      <ul class="nav-links">
+        <li><a href="#sec-problem" class="nav-link">1. Problem & Statement</a></li>
+        <li><a href="#sec-topic" class="nav-link">2. Đề tài N2-04D</a></li>
+        <li><a href="#sec-demo" class="nav-link">3. Demo Project</a></li>
+        <li><a href="#sec-testing" class="nav-link">4. Vận hành & CLI</a></li>
+        <li><a href="#sec-references" class="nav-link">5. Tài liệu & Kết luận</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero" id="hero">
+    <div class="container">
+      <div class="hero-badge-group">
+        <span class="badge badge-primary">Chuyên đề N2-04D</span>
+        <span class="badge badge-teal">Autonomous Driving Data Quality</span>
+        <span class="badge badge-amber">Dataset: BDD100K & CVAT</span>
+        <span class="badge badge-emerald">Nhóm 3 thực hiện</span>
+      </div>
+
+      <h1 class="hero-title">
+        Model-Assisted Quality Control Cho Object Detection:<br>
+        Bắt Vật Thể Bị Sót & Sửa Sai Nhãn Lớp
+      </h1>
+      <p class="hero-subtitle">
+        Tài liệu tổng hợp toàn diện từ 4 tài liệu cốt lõi (<code>problem.md</code>, <code>statement.md</code>,
+        <code>report.md</code>, <code>huong-dan-su-dung.md</code>). Định hình bài toán nghiên cứu data-centric, mô hình
+        toán học, phương pháp luận Human-in-the-loop và nền tảng ứng dụng <strong>AnnoPilot</strong> tích hợp trực tiếp
+        vào CVAT.
+      </p>
+
+      <!-- KPI Highlights -->
+      <div class="hero-kpis">
+        <div class="kpi-card teal">
+          <div class="kpi-val">66.7% - 80%</div>
+          <div class="kpi-label">Workload Reduction</div>
+          <div class="kpi-desc">Cắt giảm 7-8/10 ảnh sạch không cần con người rà soát thủ công</div>
+        </div>
+
+        <div class="kpi-card amber">
+          <div class="kpi-val">2 <span>Core Errors</span></div>
+          <div class="kpi-label">Trọng tâm phát hiện</div>
+          <div class="kpi-desc">Bắt vật thể bị bỏ sót (Missing) & Gán nhầm nhãn (Wrong Class)</div>
+        </div>
+
+        <div class="kpi-card rose">
+          <div class="kpi-val">3 <span>Tiers</span></div>
+          <div class="kpi-label">Kiến trúc Tích hợp</div>
+          <div class="kpi-desc">CVAT (System of Record) × AI Engine × QC Dashboard</div>
+        </div>
+
+        <div class="kpi-card emerald">
+          <div class="kpi-val">48 / 48</div>
+          <div class="kpi-label">Automated Tests Passed</div>
+          <div class="kpi-desc">100% CI Coverage: IoU matching, ranking & API endpoints</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================= -->
+  <!-- PHẦN 1: PROBLEM & STATEMENT -->
+  <!-- ========================================================================= -->
+  <section class="content-section" id="sec-problem">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-eyebrow">Chương 1 • Nền tảng Nghiên cứu & Định nghĩa Bài toán</div>
+        <h2 class="section-title">Problem Statement & Mô hình Toán học</h2>
+        <p class="section-desc">
+          Phân tích sâu bối cảnh khủng hoảng chất lượng dữ liệu trong xe tự hành, vì sao manual QC thất bại, nghịch lý
+          của việc so sánh ngây thơ với model, và công thức hóa bài toán Quality Control.
+        </p>
+      </div>
+
+      <!-- Grid: Bối cảnh & 2 Lỗi trọng tâm -->
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            1. Bối cảnh: Khủng hoảng Noisy Labels trong Object Detection
+          </div>
+          <p style="color: var(--text-muted); margin-bottom: 14px;">
+            Mạng học sâu trong xe tự hành phụ thuộc sống còn vào chất lượng của tập dữ liệu Ground Truth. Quá trình gán
+            nhãn ở mức instance (bounding box + class) cực kỳ tốn thời gian, dễ sai sót và lỗi thường bị bỏ qua ngay cả
+            sau các vòng rà soát truyền thống:
+          </p>
+          <ul style="color: var(--text-muted); padding-left: 20px; margin-bottom: 14px; font-size: 14px;">
+            <li><strong>Schubert et al. (WACV 2024):</strong> Lỗi nhãn làm lệch lạc các benchmark học máy và làm suy
+              giảm nghiêm trọng độ chính xác của mạng nơ-ron huấn luyện trên nhãn nhiễu.</li>
+            <li><strong>Xu et al. (CVPRW 2019):</strong> Hiệu năng fully-supervised detection giảm mạnh khi thiếu
+              instance-level labels trong ảnh huấn luyện.</li>
+            <li><strong>Tập dữ liệu BDD100K:</strong> Quy mô 100K video lái xe với vô số điều kiện địa lý, ánh sáng phức
+              tạp, đối tượng bị che khuất, thời tiết khắc nghiệt khiến việc kiểm tra thủ công 100% là bất khả thi.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+              </path>
+            </svg>
+            2. Hai Lỗi Annotation Trọng tâm của Đề tài
+          </div>
+          <div style="margin-bottom: 14px;">
+            <div style="font-weight: 700; color: #fb7185; margin-bottom: 4px;">2.1. Missing Object / Overlooked Box
+            </div>
+            <p style="font-size: 13px; color: var(--text-muted);">
+              Một vật thể có thật trong ảnh và thuộc taxonomy cần gán nhãn, nhưng annotator bỏ quên không vẽ box. Trong
+              bài toán lái xe, đây là <strong>lỗi tử huyệt</strong> (bỏ sót người đi bộ từ xa <code>pedestrian</code>,
+              người đi xe máy <code>rider</code> hoặc xe con khuất góc <code>car</code>).
+            </p>
+          </div>
+          <div>
+            <div style="font-weight: 700; color: #fbbf24; margin-bottom: 4px;">2.2. Wrong Class / Swapped Class Label
+            </div>
+            <p style="font-size: 13px; color: var(--text-muted);">
+              Bounding box đã tồn tại và định vị chính xác vị trí vật thể, nhưng bị gán nhầm class (ví dụ: nhầm lẫn giữa
+              <code>bus</code> và <code>truck</code>, <code>bicycle</code> và <code>motorcycle</code>,
+              <code>pedestrian</code> và <code>rider</code>).
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Vì sao Manual QC thất bại & Vì sao Naive Model Comparison không đủ -->
+      <div class="grid-2">
+        <div class="callout rose">
+          <div class="callout-title">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+            Vì sao Rà soát Thủ công (Manual QC) không thể đáp ứng?
+          </div>
+          <ul style="font-size: 13px; padding-left: 18px; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>Lãng phí 70-80% nguồn lực:</strong> Reviewer phải click duyệt từng bức ảnh hoàn hảo không hề có
+              lỗi chỉ để tìm 1 vài lỗi nhỏ.</li>
+            <li><strong>Khó mở rộng quy mô (Unscalable):</strong> Khi dữ liệu tăng từ hàng nghìn lên hàng trăm nghìn
+              frames, workload vượt quá khả năng nhân sự.</li>
+            <li><strong>Hiện tượng Human Fatigue:</strong> Reviewer xem hàng giờ liên tục bị mỏi mắt, tiếp tục bỏ qua
+              các lỗi gán nhãn theo hiệu ứng dây chuyền.</li>
+          </ul>
+        </div>
+
+        <div class="callout amber">
+          <div class="callout-title">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            Vì sao không thể chỉ so sánh Prediction ngây thơ với Annotation?
+          </div>
+          <ul style="font-size: 13px; padding-left: 18px; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>Model False Positive:</strong> Model đoán box không có trong ground truth có thể là missing
+              label, nhưng hoàn toàn có thể là hallucination / false positive của model.</li>
+            <li><strong>Model Misclassification:</strong> Model đoán <code>car</code> trong khi nhãn là
+              <code>truck</code> chưa chắc nhãn đã sai, có thể do model phân loại nhầm.</li>
+            <li><strong>Tư tưởng ObjectLab & Confident Learning:</strong> Phải ước lượng <em>"Khi nào nên tin model hơn
+                annotation"</em> thay vì coi prediction là chân lý mới.</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Formal Formulation -->
+      <div class="card">
+        <div class="card-title">
+          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+          </svg>
+          Mô hình Toán học Hình thức & Cơ chế Đối soát (Formal Mathematical Formulation)
+        </div>
+        <p style="color: var(--text-muted); font-size: 14px; line-height: 1.6;">
+          Hệ thống chuyển đổi bài toán rà soát dữ liệu thủ công thành một hàm ước lượng chất lượng dữ liệu gán nhãn (Label-Quality Estimation Function). Toàn bộ quá trình từ dữ liệu nguồn qua detector tới danh sách cảnh báo được trực quan hóa theo luồng xử lý 3 giai đoạn:
+        </p>
+
+        <!-- Sơ đồ Pipeline Toán học Trực quan -->
+        <div class="math-pipeline">
+          <!-- Cột 1: Tập đầu vào -->
+          <div class="pipeline-card input-card">
+            <div class="pipeline-card-header" style="color: var(--primary);">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+              1. DỮ LIỆU ĐẦU VÀO
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">
+              <div>• <strong>Ảnh:</strong> $I_n \in \mathbb{R}^{H \times W \times 3}$</div>
+              <div>• <strong>Ground Truth:</strong> $G_n = \{(b_i, c_i)\}_{i=1}^{K_n}$</div>
+              <div>• <strong>Detector Predictions:</strong> $P_n = \{(\hat{b}_j, \hat{c}_j, s_j)\}_{j=1}^{L_n}$</div>
+            </div>
+          </div>
+
+          <!-- Mũi tên 1 -->
+          <div class="math-pipeline-arrow">→</div>
+
+          <!-- Cột 2: Hàm QC Engine -->
+          <div class="pipeline-card engine-card">
+            <div class="pipeline-card-header" style="color: var(--teal);">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+              2. QC FUNCTION $Q(I_n, G_n, P_n; M)$
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+              <div>• Ghép cặp Bipartite IoU giữa $\hat{b}_j$ và $b_i$</div>
+              <div>• Lọc bất đồng: Sót vật thể & Sai class</div>
+              <div>• Chấm điểm rủi ro: $qc\_score \in [0.0, 1.0]$</div>
+            </div>
+          </div>
+
+          <!-- Mũi tên 2 -->
+          <div class="math-pipeline-arrow">→</div>
+
+          <!-- Cột 3: Tập Issue Đầu ra -->
+          <div class="pipeline-card output-card">
+            <div class="pipeline-card-header" style="color: var(--rose);">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+              3. TẬP ISSUE $E_n$
+            </div>
+            <div style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+              <div>• $E_n = \{e_1, e_2, \ldots, e_r\}$</div>
+              <div>• Hàng đợi ưu tiên review cao xuống thấp</div>
+              <div>• Tự động bỏ qua các ảnh sạch <code>CLEAN</code></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bóc tách Bộ 5 Thành phần của Issue ek -->
+        <div style="margin: 24px 0 12px;">
+          <div style="font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 6px;">
+            Đặc tả Cấu trúc Tuple của từng Issue Nghi vấn:
+          </div>
+          <div class="math-block" style="background: rgba(15, 23, 42, 0.8); border-color: rgba(56, 189, 248, 0.3); font-size: 15px; padding: 12px;">
+            $$e_k = \big(\text{type},\ \text{location},\ \text{suggested\_class},\ \text{score},\ \text{evidence}\big)$$
+          </div>
+
+          <div class="tuple-visual-grid">
+            <!-- 1. type -->
+            <div class="tuple-item-card">
+              <div class="tuple-badge">
+                <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#fb7185;"></span>
+                1. type
+              </div>
+              <div class="tuple-title">Phân Loại Lỗi</div>
+              <div class="tuple-desc">
+                $\text{type} \in \{\text{MISSING},\ \text{WRONG\_CLASS}\}$. Giúp định tuyến thao tác: vẽ thêm box hay đổi nhãn lớp.
+              </div>
+            </div>
+
+            <!-- 2. location -->
+            <div class="tuple-item-card">
+              <div class="tuple-badge">
+                <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#38bdf8;"></span>
+                2. location
+              </div>
+              <div class="tuple-title">Tọa Độ Box</div>
+              <div class="tuple-desc">
+                $b = [x_{\min}, y_{\min}, x_{\max}, y_{\max}]$. Xác định chính xác vùng pixel nghi vấn cần reviewer kiểm tra.
+              </div>
+            </div>
+
+            <!-- 3. suggested_class -->
+            <div class="tuple-item-card">
+              <div class="tuple-badge">
+                <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#fbbf24;"></span>
+                3. suggested_class
+              </div>
+              <div class="tuple-title">Class Gợi Ý</div>
+              <div class="tuple-desc">
+                $\hat{c} \in \mathcal{C}$. Lớp mô hình dự đoán với độ tin cậy cao để gợi ý thay thế (VD: <code>bus</code> thay vì <code>truck</code>).
+              </div>
+            </div>
+
+            <!-- 4. score -->
+            <div class="tuple-item-card">
+              <div class="tuple-badge">
+                <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#10b981;"></span>
+                4. score
+              </div>
+              <div class="tuple-title">Điểm Số $qc\_score$</div>
+              <div class="tuple-desc">
+                $qc\_score \in [0.0, 1.0]$. Thể hiện mức độ nghi vấn để xếp thứ tự: Điểm cao $\to$ Đẩy lên đầu hàng đợi rà soát.
+              </div>
+            </div>
+
+            <!-- 5. evidence -->
+            <div class="tuple-item-card">
+              <div class="tuple-badge">
+                <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#a855f7;"></span>
+                5. evidence
+              </div>
+              <div class="tuple-title">Bằng Chứng Đối Soát</div>
+              <div class="tuple-desc">
+                Bộ chỉ số minh chứng: Model Confidence $s_j$, chỉ số trùng khớp $IoU$ và trọng số nhầm lẫn Confusion Prior.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Callout Giải thích Ranking Score -->
+        <div class="callout teal" style="margin-top: 14px;">
+          <div class="callout-title">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            Bản chất của QC Score: Ranking Score Ưu Tiên Hàng Đợi (Không Phải Xác Suất Chưa Hiệu Chuẩn)
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
+            Trong đề tài, $qc\_score$ đóng vai trò là <strong>điểm số xếp hạng thứ tự ưu tiên</strong>:
+            $$qc\_score \text{ cao} \implies \text{Ưu tiên rà soát cao trên hàng đợi}$$
+            Nó không đồng nhất với xác suất $P(\text{annotation sai})$ trừ khi được qua bước hiệu chuẩn (Probability Calibration). Mục tiêu cốt lõi là đưa lỗi thật xuất hiện sớm nhất có thể trong ngân sách thời gian hữu hạn của reviewer.
+          </p>
+        </div>
+      </div>
+
+      <!-- Logic Phát hiện Missing & Wrong Class (Trực quan hóa đồ họa) -->
+      <div class="grid-2">
+        <!-- Card 1: Missing Object -->
+        <div class="card" style="border-top: 3px solid #fb7185;">
+          <div class="card-title" style="color: #fb7185;">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            1. Logic Bắt Sót: Missing Object Detection
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 10px;">
+            Kích hoạt khi mô hình nhìn thấy vật thể với độ tự tin cao ($s_j \ge 0.45$), nhưng toàn bộ Ground Truth của người không hề có box nào trùng khớp ($IoU < 0.30$):
+          </p>
+
+          <!-- Minh họa trực quan Mini Box Scene -->
+          <div class="mini-scene-box">
+            <div style="position: absolute; left: 35%; top: 15%; width: 90px; height: 75px; border: 2px dashed #f59e0b; background: rgba(245, 158, 11, 0.15); border-radius: 4px; display:flex; align-items:flex-end; justify-content:center; padding: 4px;">
+              <span style="font-size: 9px; font-family: var(--font-mono); color: #f59e0b; background: rgba(0,0,0,0.7); padding: 1px 4px; border-radius: 2px;">Model: car (0.92)</span>
+            </div>
+            <div style="position: absolute; right: 12px; top: 10px; font-size: 11px; color: #fb7185; font-family: var(--font-mono); background: rgba(244, 63, 94, 0.15); border: 1px solid rgba(244, 63, 94, 0.3); padding: 2px 8px; border-radius: 4px;">
+              Annotator: Không có box (IoU = 0.00)
+            </div>
+          </div>
+
+          <!-- Công thức toán học KaTeX -->
+          <div style="background: rgba(0, 0, 0, 0.35); padding: 12px 14px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 10px;">
+            <div style="font-size: 11px; font-weight: 700; color: #fb7185; text-transform: uppercase; margin-bottom: 4px;">Điều kiện Kích hoạt:</div>
+            $$\begin{cases} s_j \ge \tau_{conf} = 0.45 \\[4pt] \max_{i=1..K_n} \text{IoU}(\hat{b}_j, b_i) < \tau_{iou\_missing} = 0.30 \end{cases}$$
+          </div>
+
+          <div style="background: rgba(0,0,0,0.3); padding: 10px 14px; border-radius: 6px; font-size: 13px; color: var(--text-muted);">
+            <strong style="color: #fff;">Công thức QC Score Sót:</strong>
+            $$\text{QCScore}_{\text{missing}} = s_j \times \big(1 - \max_{i} \text{IoU}\big)$$
+            <em>Điểm càng cao khi mô hình càng tự tin và mức độ trùng khớp với Ground Truth càng gần 0.</em>
+          </div>
+        </div>
+
+        <!-- Card 2: Wrong Class -->
+        <div class="card" style="border-top: 3px solid #fbbf24;">
+          <div class="card-title" style="color: #fbbf24;">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
+            2. Logic Bắt Sai Class: Wrong Class Detection
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 10px;">
+            Kích hoạt khi người và mô hình đều đồng ý có vật thể tại cùng một tọa độ ($IoU \ge 0.50$), nhưng bất đồng về nhãn lớp và rơi vào ma trận nhầm lẫn giao thông:
+          </p>
+
+          <!-- Minh họa trực quan Mini Box Scene -->
+          <div class="mini-scene-box">
+            <!-- Box Annotator: teal -->
+            <div style="position: absolute; left: 32%; top: 15%; width: 100px; height: 75px; border: 2px solid #14b8a6; background: rgba(20, 184, 166, 0.1); border-radius: 4px;">
+              <span style="position: absolute; top: -16px; left: 0; font-size: 9px; font-family: var(--font-mono); color: #14b8a6; background: rgba(0,0,0,0.7); padding: 1px 4px; border-radius: 2px;">Annotator: truck</span>
+            </div>
+            <!-- Box Model: amber dashed -->
+            <div style="position: absolute; left: 30%; top: 12%; width: 105px; height: 80px; border: 2px dashed #f59e0b; background: rgba(245, 158, 11, 0.1); border-radius: 4px;">
+              <span style="position: absolute; bottom: -16px; right: 0; font-size: 9px; font-family: var(--font-mono); color: #f59e0b; background: rgba(0,0,0,0.7); padding: 1px 4px; border-radius: 2px;">Model: bus (0.94)</span>
+            </div>
+            <div style="position: absolute; right: 12px; top: 10px; font-size: 11px; color: #fbbf24; font-family: var(--font-mono); background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 8px; border-radius: 4px;">
+              Overlap IoU = 0.86 ✓
+            </div>
+          </div>
+
+          <!-- Công thức toán học KaTeX -->
+          <div style="background: rgba(0, 0, 0, 0.35); padding: 12px 14px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 10px;">
+            <div style="font-size: 11px; font-weight: 700; color: #fbbf24; text-transform: uppercase; margin-bottom: 4px;">Điều kiện Kích hoạt:</div>
+            $$\begin{cases} \text{IoU}(b_i, \hat{b}_j) \ge \tau_{iou\_match} = 0.50 \\[4pt] c_i \ne \hat{c}_j \quad \text{và} \quad (c_i, \hat{c}_j) \in \text{Driving Confusion Priors} \end{cases}$$
+          </div>
+
+          <div style="background: rgba(0,0,0,0.3); padding: 10px 14px; border-radius: 6px; font-size: 13px; color: var(--text-muted);">
+            <strong style="color: #fff;">Công thức QC Score Sai Class:</strong>
+            $$\text{QCScore}_{\text{wrong}} = s_j \times \text{IoU}(b_i, \hat{b}_j) \times \text{PriorFactor}$$
+            <em>Điểm càng cao khi vật thể trùng vị trí hoàn hảo, detector tự tin cao và cặp nhãn thuộc tiền nghiệm nhầm lẫn.</em>
+          </div>
+        </div>
+      </div>
+
+      <!-- Widget Tương Tác: Thử nghiệm Tính toán QC Score Trực Quan -->
+      <div class="qc-calc-widget">
+        <div class="calc-widget-title">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="badge badge-primary">Interactive Widget</span>
+            <span>Trải Nghiệm Tính Toán QC Score Thời Gian Thực (Live Calculator)</span>
+          </div>
+          <span style="font-size: 12px; color: var(--text-dim);">Kéo thanh trượt để quan sát công thức tự động tính toán</span>
+        </div>
+
+        <div class="calc-controls-grid">
+          <!-- Slider 1: Confidence -->
+          <div class="calc-field">
+            <label>
+              <span>Model Confidence ($s_j$):</span>
+              <strong id="val-conf">0.92</strong>
+            </label>
+            <input type="range" id="slider-conf" min="0.10" max="0.99" step="0.01" value="0.92" oninput="updateLiveQC()">
+          </div>
+
+          <!-- Slider 2: IoU -->
+          <div class="calc-field">
+            <label>
+              <span>Best IoU với Annotation:</span>
+              <strong id="val-iou">0.12</strong>
+            </label>
+            <input type="range" id="slider-iou" min="0.00" max="0.95" step="0.01" value="0.12" oninput="updateLiveQC()">
+          </div>
+
+          <!-- Radio: Quan hệ Nhãn -->
+          <div class="calc-field">
+            <label><span>Quan hệ Nhãn lớp (Class Status):</span></label>
+            <div class="calc-radio-group">
+              <button class="calc-radio-btn active" id="btn-rel-missing" onclick="setLabelRel('missing')">Không có box gán</button>
+              <button class="calc-radio-btn" id="btn-rel-wrong" onclick="setLabelRel('wrong')">Khác nhãn (truck ≠ bus)</button>
+              <button class="calc-radio-btn" id="btn-rel-match" onclick="setLabelRel('match')">Trùng nhãn (Đồng thuận)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Output Panel -->
+        <div class="calc-output-panel">
+          <div>
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px; font-weight: 700;">Công thức đang tính toán:</div>
+            <div class="calc-output-formula" id="calc-formula-display">
+              QCScore = 0.92 × (1 - 0.12) = 0.810
+            </div>
+          </div>
+
+          <div class="calc-output-score">
+            <div style="text-align: right;">
+              <div style="font-size: 11px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 2px;">Kết luận phân loại:</div>
+              <div id="calc-badge-status" class="pill pill-high" style="font-size: 13px; padding: 4px 10px;">MISSING_OBJECT (HIGH)</div>
+            </div>
+            <div style="font-size: 26px; font-weight: 800; font-family: var(--font-mono); color: #38bdf8;" id="calc-score-val">
+              0.810
+            </div>
+          </div>
+        </div>
+      </div>
+<!-- 6 Câu hỏi nghiên cứu & Hệ thống chỉ số KPI -->
+        <div class="card">
+          <div class="card-title">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path
+                d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z">
+              </path>
+            </svg>
+            6 Câu Hỏi Nghiên Cứu (Research Questions) & Hệ Thống Metrics
+          </div>
+          <div class="grid-3" style="margin-bottom: 20px;">
+            <div
+              style="background: rgba(255,255,255,0.02); padding: 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+              <strong style="color: var(--primary);">RQ1 — Missing Detection:</strong> Khả năng bắt các vật thể bị bỏ
+              quên đạt Precision/Recall bao nhiêu?
+            </div>
+            <div
+              style="background: rgba(255,255,255,0.02); padding: 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+              <strong style="color: var(--primary);">RQ2 — Wrong Class:</strong> Hệ thống phân biệt các ca gán sai nhãn
+              chính xác đến mức độ nào?
+            </div>
+            <div
+              style="background: rgba(255,255,255,0.02); padding: 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+              <strong style="color: var(--primary);">RQ3 — Annotation vs Model Error:</strong> Tín hiệu nào (Conf, IoU,
+              Uncertainty, Loss) giúp lọc false alarms tốt nhất?
+            </div>
+            <div
+              style="background: rgba(255,255,255,0.02); padding: 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+              <strong style="color: var(--primary);">RQ4 — Ranking Scorer:</strong> Hàm ranking nào đưa lỗi thực sự lên
+              đầu hàng đợi hiệu quả nhất?
+            </div>
+            <div
+              style="background: rgba(255,255,255,0.02); padding: 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+              <strong style="color: var(--primary);">RQ5 — Workload Reduction:</strong> Cắt giảm được bao nhiêu % dữ
+              liệu cần con người kiểm tra thủ công?
+            </div>
+            <div
+              style="background: rgba(255,255,255,0.02); padding: 14px; border-radius: 8px; border: 1px solid var(--border-color);">
+              <strong style="color: var(--primary);">RQ6 — Seamless Integration:</strong> Làm thế nào tích hợp vào CVAT
+              để reviewer thao tác nhanh nhất?
+            </div>
+          </div>
+
+          <div class="data-table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Chỉ số Đánh giá</th>
+                  <th>Công thức Toán học</th>
+                  <th>Ý nghĩa Nghiệp vụ Thực tiễn</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>QC Precision</strong></td>
+                  <td>$\frac{TP}{TP + FP} = \frac{\text{Số lỗi thật tìm thấy}}{\text{Tổng số candidate cảnh báo}}$</td>
+                  <td>Đo lường độ tin cậy của cảnh báo; tránh làm phiền reviewer với các báo sai (False Alarms).</td>
+                </tr>
+                <tr>
+                  <td><strong>QC Recall</strong></td>
+                  <td>$\frac{TP}{TP + FN} = \frac{\text{Số lỗi thật tìm thấy}}{\text{Tổng lỗi thật trong dataset}}$</td>
+                  <td>Đo khả năng bao phủ; đảm bảo không bỏ sót các lỗi annotation nghiêm trọng trong dataset.</td>
+                </tr>
+                <tr>
+                  <td><strong>Workload Reduction</strong></td>
+                  <td>$\left(1 - \frac{N_{\text{review}}}{N_{\text{total}}}\right) \times 100\%$</td>
+                  <td>Tỷ lệ phần trăm công sức kiểm tra được cắt giảm (Ví dụ: xem 2,000/10,000 ảnh = giảm 80% tải).</td>
+                </tr>
+                <tr>
+                  <td><strong>Precision@K</strong></td>
+                  <td>$\frac{\text{Số lỗi thật trong top } K}{K}$</td>
+                  <td>Đo năng lực xếp hạng; chứng minh các ca lỗi thật được gom hết vào đầu danh sách review.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+  </section>
+
+  <!-- ========================================================================= -->
+  <!-- PHẦN 2: ĐỀ TÀI & PHƯƠNG PHÁP LUẬN -->
+  <!-- ========================================================================= -->
+  <section class="content-section" id="sec-topic">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-eyebrow">Chương 2 • Phương pháp luận & Báo cáo Phân tích</div>
+        <h2 class="section-title">Đề Tài N2-04D: Human-In-The-Loop QC System</h2>
+        <p class="section-desc">
+          Mô hình hóa nguyên tắc "Model đề xuất, Con người quyết định", phân tích chuyên sâu các điểm mạnh đột phá và
+          đánh giá khách quan các thách thức giới hạn kỹ thuật.
+        </p>
+      </div>
+
+      <!-- Sơ đồ Human in the loop -->
+      <div class="flowchart-container">
+        <div style="font-weight: 700; color: #fff; margin-bottom: 16px; font-size: 14px;">
+          SƠ ĐỒ QUY TRÌNH HỖ TRỢ RA QUYẾT ĐỊNH (HUMAN-IN-THE-LOOP WORKFLOW)
+        </div>
+        <div class="flow-steps">
+          <div class="flow-node">
+            <div class="flow-node-title">1. Annotated Dataset</div>
+            <div class="flow-node-desc">Nhãn gán từ annotators (BDD100K)</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node">
+            <div class="flow-node-title">2. YOLOv8 Detector</div>
+            <div class="flow-node-desc">Chạy suy luận độc lập lấy prediction</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node highlight">
+            <div class="flow-node-title">3. QC Engine Matching</div>
+            <div class="flow-node-desc">So khớp IoU, tính độ bất đồng</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node highlight">
+            <div class="flow-node-title">4. Prioritized Queue</div>
+            <div class="flow-node-desc">Xếp hạng theo qc_score giảm dần</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node" style="border-color: var(--teal);">
+            <div class="flow-node-title">5. Human Review (CVAT)</div>
+            <div class="flow-node-desc">Chấp nhận / Bác bỏ / 1-Click Fix</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-node" style="border-color: var(--emerald);">
+            <div class="flow-node-title">6. Clean Ground Truth</div>
+            <div class="flow-node-desc">Tập nhãn chất lượng cao sẵn sàng train</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phân tích Điểm mạnh & Điểm yếu từ report.md -->
+      <div class="grid-2">
+        <!-- Điểm mạnh -->
+        <div class="card" style="border-top: 4px solid var(--emerald);">
+          <div class="card-title" style="color: var(--emerald);">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M5 13l4 4L19 7"></path>
+            </svg>
+            7 Điểm Mạnh Vượt Trội của Hệ Thống
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 14px; font-size: 13px; color: var(--text-muted);">
+            <div>
+              <strong style="color: #fff;">1. Cắt giảm tối đa công sức review thủ công:</strong> Reviewer không phải dò
+              dẫm từng ảnh mà được đưa thẳng tới các vị trí nghi ngờ lỗi có bằng chứng cụ thể.
+            </div>
+            <div>
+              <strong style="color: #fff;">2. Cơ chế Human-in-the-loop an toàn:</strong> Tuyệt đối không tự động ghi đè
+              hay thay đổi Ground Truth; mô hình chỉ đóng vai trò Second Reviewer tham vấn.
+            </div>
+            <div>
+              <strong style="color: #fff;">3. Tận dụng sức mạnh của CVAT:</strong> CVAT là System of Record chuẩn ngành
+              quản lý task, job, video tracks; AnnoPilot không phát minh lại bánh xe mà đóng vai trò lớp Decision Layer
+              thông minh.
+            </div>
+            <div>
+              <strong style="color: #fff;">4. Logic giải thích minh bạch (Explainable AI):</strong> Mỗi cảnh báo đều
+              đính kèm bằng chứng rõ ràng: nhãn người gán, nhãn mô hình đề xuất, độ trùng khớp IoU và độ tin cậy.
+            </div>
+            <div>
+              <strong style="color: #fff;">5. Ưu tiên các lỗi nguy hiểm qua QC Score:</strong> Sắp xếp các ca rủi ro cao
+              nhất (High Severity) lên đầu hàng đợi, đảm bảo lỗi nghiêm trọng được khắc phục trước.
+            </div>
+            <div>
+              <strong style="color: #fff;">6. Kiến trúc linh hoạt, độc lập mô hình (Model-Agnostic):</strong> Dễ dàng
+              thay thế mô hình suy luận từ YOLOv8 sang Faster R-CNN, DETR, RT-DETR hoặc mô hình tùy biến.
+            </div>
+            <div>
+              <strong style="color: #fff;">7. Khả năng mở rộng đa loại lỗi:</strong> Thiết kế nền tảng sẵn sàng mở rộng
+              sang lỗi lệch bounding box (bad localization), duplicate box, lỗi segmentation và tracking qua video
+              frames.
+            </div>
+          </div>
+        </div>
+
+        <!-- Hạn chế & Thách thức -->
+        <div class="card" style="border-top: 4px solid var(--rose);">
+          <div class="card-title" style="color: var(--rose);">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+              </path>
+            </svg>
+            Hạn Chế & Thách Thức Kỹ Thuật
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 14px; font-size: 13px; color: var(--text-muted);">
+            <div>
+              <strong style="color: #fff;">1. Phụ thuộc vào năng lực của Detector:</strong> Nếu cả người gán nhãn lẫn mô
+              hình đều bỏ sót cùng một vật thể, hệ thống sẽ không có tín hiệu để cảnh báo (False Negative).
+            </div>
+            <div>
+              <strong style="color: #fff;">2. Nguy cơ cảnh báo sai (False Positive):</strong> Khi mô hình bị ảo giác
+              nhận diện vật cản ở background, cảnh báo sai sẽ làm phiền và tiêu tốn thời gian xác nhận của reviewer.
+            </div>
+            <div>
+              <strong style="color: #fff;">3. Sự đánh đổi giữa Precision và Recall:</strong> Đặt ngưỡng confidence quá
+              cao sẽ giảm cảnh báo sai nhưng bỏ lọt lỗi; ngược lại đặt ngưỡng thấp sẽ tăng false alarms.
+            </div>
+            <div>
+              <strong style="color: #fff;">4. Thách thức trong cảnh đông đúc (Crowded Scenes):</strong> Ở các nút giao
+              thông nghẽn xe hoặc vỉa hè đông người, các box chồng lấn dày đặc gây khó khăn cho thuật toán ghép cặp IoU
+              bipartite matching.
+            </div>
+            <div>
+              <strong style="color: #fff;">5. Định kiến cố hữu của mô hình (Model Bias):</strong> Nếu detector bị thiên
+              kiến thường xuyên nhầm <code>truck</code> thành <code>bus</code>, hệ thống sẽ liên tục tạo issue sai lệch.
+            </div>
+            <div>
+              <strong style="color: #fff;">6. Xung đột giữa Guideline và Model:</strong> Quy ước dự án có thể bỏ qua xe
+              quá nhỏ ở đường chân trời, nhưng model nhạy bén vẫn phát hiện và báo lỗi sai.
+            </div>
+            <div>
+              <strong style="color: #fff;">7. Chi phí tính toán suy luận (Inference Overhead):</strong> Chạy detector
+              trên hàng triệu frames đòi hỏi tối ưu hóa ONNX runtime hoặc GPU pipeline.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bảng Tổng kết Ma trận Đánh giá -->
+      <div class="card">
+        <div class="card-title">Ma trận Tổng kết & Hướng Khắc phục</div>
+        <div class="data-table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width: 25%;">Thách thức Kỹ thuật</th>
+                <th style="width: 35%;">Tác động Tiềm tàng</th>
+                <th style="width: 40%;">Giải pháp Đã Triển khai trên AnnoPilot</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Model False Positive</strong></td>
+                <td>Sinh cảnh báo giả làm tăng thời gian reviewer</td>
+                <td>Bổ sung bộ lọc Driving Confusion Priors + Nút [ ✗ Báo sai (False Alarm) ] 1 chạm.</td>
+              </tr>
+              <tr>
+                <td><strong>Khung cảnh đông đúc</strong></td>
+                <td>Ghép nhầm box giữa các xe gần nhau</td>
+                <td>Kết hợp ngưỡng IoU kép ($\ge 0.50$ cho Wrong Class, $< 0.30$ cho Missing) + Bipartite matching.</td>
+              </tr>
+              <tr>
+                <td><strong>Lệch Guideline gán nhãn</strong></td>
+                <td>Model bắt các xe kích thước siêu nhỏ</td>
+                <td>Cho phép cấu hình min box size và threshold linh hoạt theo từng task của dataset.</td>
+              </tr>
+              <tr>
+                <td><strong>Tài nguyên Inference</strong></td>
+                <td>Chạy suy luận lâu, đòi hỏi GPU đắt đỏ</td>
+                <td>Sử dụng trọng số YOLOv8 ONNX qua OpenCV DNN chạy cực nhanh trên CPU không cần PyTorch.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================= -->
+  <!-- PHẦN 3: PROJECT DEMO ỨNG DỤNG - ANNOPILOT -->
+  <!-- ========================================================================= -->
+  <section class="content-section" id="sec-demo">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-eyebrow">Chương 3 • Nền tảng Thực thi & Ứng dụng Thực tế</div>
+        <h2 class="section-title">AnnoPilot Platform: Kiến Trúc & Tính Năng Đột Phá</h2>
+        <p class="section-desc">
+          Giới thiệu kiến trúc 3 tầng chuẩn tài liệu thiết kế v0.1, tích hợp sâu vào CVAT thông qua Deep-link URL, và
+          quy trình xử lý lỗi khép kín (Closed-Loop Resolution).
+        </p>
+      </div>
+
+      <!-- Kiến trúc 3 tầng -->
+      <div class="card">
+        <div class="card-title">
+          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path
+              d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10">
+            </path>
+          </svg>
+          Kiến Trúc 3 Tầng Tích Hợp CVAT × QC Engine × Dashboard
+        </div>
+        <div class="grid-3" style="margin-top: 16px;">
+          <!-- Tầng 1 -->
+          <div
+            style="background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 18px; border-top: 3px solid #38bdf8;">
+            <div
+              style="font-size: 11px; text-transform: uppercase; color: #38bdf8; font-weight: 700; margin-bottom: 6px;">
+              TẦNG 1 • SYSTEM OF RECORD</div>
+            <div style="font-weight: 700; font-size: 16px; color: #fff; margin-bottom: 8px;">CVAT Server</div>
+            <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5;">
+              Nơi lưu trữ chân lý dữ liệu gốc: Video, Image Frames theo chỉ số Frame Number (0..N). Chịu trách nhiệm
+              chỉnh sửa bounding boxes, thay đổi classes và xuất nhãn COCO / BDD100K JSON.
+            </p>
+          </div>
+
+          <!-- Tầng 2 -->
+          <div
+            style="background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 18px; border-top: 3px solid #14b8a6;">
+            <div
+              style="font-size: 11px; text-transform: uppercase; color: #14b8a6; font-weight: 700; margin-bottom: 6px;">
+              TẦNG 2 • AI PIPELINE ENGINE</div>
+            <div style="font-weight: 700; font-size: 16px; color: #fff; margin-bottom: 8px;">Model QC Backend</div>
+            <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5;">
+              FastAPI + OpenCV DNN chạy YOLOv8 ONNX không cần GPU. Thực hiện Discrepancy Matching, tính toán độ tin cậy,
+              chấm điểm rủi ro $qc\_score$ và tự động sinh Deep-link trỏ sang CVAT.
+            </p>
+          </div>
+
+          <!-- Tầng 3 -->
+          <div
+            style="background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 18px; border-top: 3px solid #f59e0b;">
+            <div
+              style="font-size: 11px; text-transform: uppercase; color: #f59e0b; font-weight: 700; margin-bottom: 6px;">
+              TẦNG 3 • REVIEWER WORKSPACE</div>
+            <div style="font-weight: 700; font-size: 16px; color: #fff; margin-bottom: 8px;">QC Dashboard Frontend</div>
+            <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5;">
+              React 19, TypeScript, Vite 6 với giao diện Cyber-Dark Glassmorphism. Cung cấp hàng đợi Prioritized Queue,
+              Visual Diff 3 lớp màu và quy trình giải quyết lỗi Closed-Loop 1 chạm.
+            </p>
+          </div>
+        </div>
+
+        <div class="callout primary" style="margin-top: 20px;">
+          <div class="callout-title">Nguyên tắc phân định ranh giới chức năng rõ ràng:</div>
+          <p style="font-size: 13px; color: var(--text-muted);">
+            <strong>CVAT = Nơi sửa dữ liệu (System of Record):</strong> Đảm bảo tính nhất quán và bảo toàn dữ liệu
+            nguồn.<br>
+            <strong>QC Dashboard = Nơi phát hiện, xếp hạng và điều hướng (Decision & Prioritization Layer):</strong>
+            Giúp reviewer giải quyết nhanh nhất các ca lỗi nguy hiểm thay vì phải mở từng bức ảnh.
+          </p>
+        </div>
+      </div>
+
+      <!-- Tương tác mô phỏng Visual Diff Mockup -->
+      <div class="demo-wrapper">
+        <div class="demo-header">
+          <div class="demo-title">
+            <span class="badge badge-rose" style="font-size: 11px;">Trải nghiệm Demo Trực quan</span>
+            <span>Mô phỏng Giao diện Dual-Overlay Visual Diff & Prioritized Queue</span>
+          </div>
+          <div class="demo-controls">
+            <button class="demo-btn active" id="btn-toggle-gt" onclick="toggleLayer('gt')">
+              <span
+                style="display:inline-block; width:10px; height:10px; background:var(--teal); border-radius:2px;"></span>
+              [Nhãn người gán]
+            </button>
+            <button class="demo-btn active" id="btn-toggle-model" onclick="toggleLayer('model')">
+              <span
+                style="display:inline-block; width:10px; height:10px; border:1px dashed var(--amber); border-radius:2px;"></span>
+              [Model dự đoán]
+            </button>
+            <button class="demo-btn active" id="btn-toggle-issue" onclick="toggleLayer('issue')">
+              <span
+                style="display:inline-block; width:10px; height:10px; background:var(--rose); border-radius:2px;"></span>
+              [Vùng nghi vấn]
+            </button>
+            <button class="demo-btn cvat"
+              onclick="alert('Đang mở liên kết: http://localhost:8080/tasks/2/jobs/2?frame=42')">
+              ↗ Open in CVAT (Frame #42)
+            </button>
+          </div>
+        </div>
+
+        <div class="demo-main">
+          <!-- Cột hàng đợi Prioritized Queue -->
+          <div class="demo-queue">
+            <div class="queue-title">
+              <span>Hàng Đợi Ưu Tiên (Prioritized Queue)</span>
+              <span class="pill pill-high">2 Flagged</span>
+            </div>
+            <div class="queue-items">
+              <div class="queue-item selected" onclick="selectDemoItem(1)">
+                <div class="queue-item-header">
+                  <span class="queue-filename">frame_000042.jpg</span>
+                  <span class="pill pill-high">0.920 HIGH</span>
+                </div>
+                <div class="queue-item-meta">
+                  <span>Frame #42</span> • <span style="color:#fb7185;">1 Missing</span> • <span
+                    style="color:#fbbf24;">1 Wrong Class</span>
+                </div>
+              </div>
+
+              <div class="queue-item" onclick="selectDemoItem(2)">
+                <div class="queue-item-header">
+                  <span class="queue-filename">frame_000108.jpg</span>
+                  <span class="pill pill-med">0.680 MED</span>
+                </div>
+                <div class="queue-item-meta">
+                  <span>Frame #108</span> • <span style="color:#fb7185;">1 Missing Object</span>
+                </div>
+              </div>
+
+              <div class="queue-item" style="opacity: 0.6;" onclick="selectDemoItem(3)">
+                <div class="queue-item-header">
+                  <span class="queue-filename">frame_000195.jpg</span>
+                  <span class="pill pill-clean">CLEAN</span>
+                </div>
+                <div class="queue-item-meta">
+                  <span>Frame #195</span> • <span style="color:#34d399;">0 Issues (Auto-passed)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Khung hiển thị trực quan Stage -->
+          <div class="demo-viewport">
+            <div class="canvas-stage" id="stage">
+              <!-- Background Scene Placeholder -->
+              <div class="mock-road-scene" style="background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);"></div>
+
+              <!-- Box 1: Ground Truth Car (Bình thường) -->
+              <div class="sim-box box-gt" id="box-1" style="left: 10%; top: 38%; width: 140px; height: 110px;">
+                <div class="sim-tag">Annotator: car</div>
+              </div>
+
+              <!-- Box 2: Wrong Class: Annotator gán truck, Model đoán bus -->
+              <div class="sim-box box-gt" id="box-2-gt" style="left: 42%; top: 28%; width: 180px; height: 160px;">
+                <div class="sim-tag">Annotator: truck</div>
+              </div>
+              <div class="sim-box box-model" id="box-2-model" style="left: 41%; top: 27%; width: 184px; height: 162px;">
+                <div class="sim-tag">Model: bus (0.94)</div>
+              </div>
+              <div class="sim-box box-issue" id="box-2-issue" style="left: 40%; top: 26%; width: 186px; height: 164px;">
+                <div class="sim-tag">WRONG CLASS: truck ≠ bus (IoU 0.88)</div>
+              </div>
+
+              <!-- Box 3: Missing Object: Model thấy pedestrian, Annotator bỏ sót -->
+              <div class="sim-box box-model" id="box-3-model" style="left: 78%; top: 35%; width: 70px; height: 140px;">
+                <div class="sim-tag">Model: pedestrian (0.89)</div>
+              </div>
+              <div class="sim-box box-issue" id="box-3-issue" style="left: 77%; top: 34%; width: 72px; height: 142px;">
+                <div class="sim-tag">MISSING OBJECT (IoU 0.00)</div>
+              </div>
+            </div>
+
+            <!-- Bảng bằng chứng & Nút thao tác khép kín -->
+            <div class="canvas-actions">
+              <div class="issue-info-text">
+                Đang kiểm tra: <strong>Frame #42 (CVAT Task #2, Job #2)</strong> — 2 điểm bất đồng cần xử lý
+              </div>
+              <div style="display:flex; gap: 8px;">
+                <button class="demo-btn" style="background:#10b981; color:#fff;"
+                  onclick="alert('Thành công: Đã tự động tạo nhãn pedestrian và đổi truck -> bus vào CSDL demo!')">
+                  ⚡ 1-Click Sửa tự động (Demo)
+                </button>
+                <button class="demo-btn" style="background:#3b82f6; color:#fff;"
+                  onclick="alert('Đã cập nhật trạng thái: Resolved trên CVAT')">
+                  ✓ Đã sửa trên CVAT
+                </button>
+                <button class="demo-btn" style="background:#ef4444; color:#fff;"
+                  onclick="alert('Đã bác bỏ: Ghi nhận Model False Alarm')">
+                  ✗ Báo sai
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4 Tính năng giải quyết lỗi Closed-Loop -->
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+            </svg>
+            1. Chế độ CVAT Chuẩn (Production Mode)
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+            Dành cho môi trường sản xuất khi cụm Docker CVAT đang chạy:
+          </p>
+          <ol style="font-size: 13px; padding-left: 20px; color: var(--text-muted); line-height: 1.6;">
+            <li>Reviewer bấm nút <code>[ ↗ Open in CVAT (Frame #N) ]</code> trên Dashboard.</li>
+            <li>Trình duyệt tự động mở đúng frame trong CVAT Editor:
+              <code>http://localhost:8080/tasks/{task_id}/jobs/{job_id}?frame={frame_num}</code>.</li>
+            <li>Annotator/Reviewer vẽ thêm box hoặc đổi class trực tiếp trên CVAT.</li>
+            <li>Quay lại Dashboard và bấm <code>[ ✓ Đã sửa trên CVAT (Resolved) ]</code> để cập nhật tiến độ.</li>
+          </ol>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+            </svg>
+            2. Chế độ Ngoại tuyến (1-Click Fast Demo Mode)
+          </div>
+          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+            Dành cho trình diễn demo nhanh hoặc kiểm thử thuật toán mà không cần khởi động cụm Docker CVAT cồng kềnh:
+          </p>
+          <ol style="font-size: 13px; padding-left: 20px; color: var(--text-muted); line-height: 1.6;">
+            <li>Reviewer chỉ cần nhấn nút <code>[ ⚡ 1-Click Sửa tự động ]</code>.</li>
+            <li>Hệ thống backend tự động bổ sung Annotation mới cho vật thể bị sót hoặc đổi class trong CSDL SQLite.
+            </li>
+            <li>Đánh dấu issue là <code>ACCEPTED</code> ngay tức khắc.</li>
+            <li>Hỗ trợ nút <code>[ ↺ Hoàn tác ]</code> để trả về trạng thái nguyên bản phục vụ kiểm tra lại.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================= -->
+  <!-- PHẦN 4: VẬN HÀNH, KIỂM THỬ CLI & TÀI LIỆU KỸ THUẬT -->
+  <!-- ========================================================================= -->
+  <section class="content-section" id="sec-testing">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-eyebrow">Chương 4 • Hướng dẫn Sử dụng & Kịch bản Kiểm thử</div>
+        <h2 class="section-title">Kịch Bản CLI, Quy Trình Web UI & Đặc Tả API</h2>
+        <p class="section-desc">
+          Tài liệu kỹ thuật chi tiết phục vụ chạy thử tự động qua dòng lệnh trong 2 giây, thao tác trên giao diện Web
+          UI, và danh mục RESTful API endpoints.
+        </p>
+      </div>
+
+      <!-- Tabs Chuyển đổi Hướng dẫn -->
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab(event, 'tab-cli')">1. Kịch bản Kiểm thử CLI (2 Giây)</button>
+        <button class="tab-btn" onclick="switchTab(event, 'tab-web')">2. Quy trình Thao tác Web UI (6 Bước)</button>
+        <button class="tab-btn" onclick="switchTab(event, 'tab-api')">3. Đặc tả RESTful API</button>
+        <button class="tab-btn" onclick="switchTab(event, 'tab-troubleshoot')">4. Xử lý Sự cố (Troubleshooting)</button>
+      </div>
+
+      <!-- TAB 1: CLI TEST -->
+      <div id="tab-cli" class="tab-pane active">
+        <div class="card">
+          <div class="card-title">Kịch bản Kiểm thử Tự động qua Terminal (demo_quick_test.py)</div>
+          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 14px;">
+            Dự án cung cấp sẵn script thực thi tự động toàn bộ luồng nghiệp vụ của chuyên đề N2-04D trên terminal mà
+            không cần thao tác chuột:
+          </p>
+
+          <div class="code-container">
+            <div class="code-header">
+              <span>PowerShell Execution</span>
+              <button class="code-copy-btn" onclick="copyCode('cli-cmd')">Sao chép</button>
+            </div>
+            <pre class="code-block" id="cli-cmd">cd d:\AI\repo\AnnoPilot-qminh\backend
+.\.venv\Scripts\python.exe demo_quick_test.py</pre>
+          </div>
+
+          <div style="margin-top: 16px;">
+            <div style="font-weight: 700; color: #fff; margin-bottom: 8px; font-size: 14px;">7 Bước Script Tự Động Thực
+              Thi:</div>
+            <div class="grid-2" style="font-size: 13px;">
+              <div
+                style="background:rgba(255,255,255,0.02); padding:10px 14px; border-radius:6px; border:1px solid var(--border-color);">
+                <strong>Bước 1: Khởi tạo Dataset:</strong> Nạp 3 ảnh BDD100K mẫu tiêu biểu.
+              </div>
+              <div
+                style="background:rgba(255,255,255,0.02); padding:10px 14px; border-radius:6px; border:1px solid var(--border-color);">
+                <strong>Bước 2: Cấy nhãn lỗi:</strong> Cố tình tạo 1 lỗi sót <code>car</code> và 1 lỗi gán nhầm
+                <code>truck</code> thành <code>bus</code>.
+              </div>
+              <div
+                style="background:rgba(255,255,255,0.02); padding:10px 14px; border-radius:6px; border:1px solid var(--border-color);">
+                <strong>Bước 3: Nạp YOLOv8 Predictions:</strong> Đưa kết quả nhận diện của detector vào CSDL.
+              </div>
+              <div
+                style="background:rgba(255,255,255,0.02); padding:10px 14px; border-radius:6px; border:1px solid var(--border-color);">
+                <strong>Bước 4: Chạy Audit Run:</strong> Tính toán Workload Reduction = <strong>66.67%</strong>, bắt
+                chính xác 2 lỗi.
+              </div>
+              <div
+                style="background:rgba(255,255,255,0.02); padding:10px 14px; border-radius:6px; border:1px solid var(--border-color);">
+                <strong>Bước 5: Xếp hạng hàng đợi:</strong> Đẩy ảnh lỗi lên vị trí số #1 với điểm $qc\_score = 0.920$
+                (HIGH).
+              </div>
+              <div
+                style="background:rgba(255,255,255,0.02); padding:10px 14px; border-radius:6px; border:1px solid var(--border-color);">
+                <strong>Bước 6: 1-Click Resolution:</strong> Tự động sửa nhãn trong CSDL và đổi trạng thái sang
+                ACCEPTED.
+              </div>
+            </div>
+          </div>
+
+          <div class="callout teal" style="margin-top: 16px;">
+            <div class="callout-title">Chạy Bộ Kiểm Thử Tự Động (Unit & Integration Tests)</div>
+            <div class="code-container" style="margin: 8px 0 4px;">
+              <pre class="code-block">.\.venv\Scripts\python.exe -m pytest -q
+# Kết quả: 48 passed in 1.84s (100% Passed)</pre>
+            </div>
+            <p style="font-size: 12px; color: var(--text-muted);">
+              Đảm bảo tính bền vững của mã nguồn và thuật toán so khớp IoU không bị hồi quy (regression).
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: WEB UI 6 BƯỚC -->
+      <div id="tab-web" class="tab-pane">
+        <div class="card">
+          <div class="card-title">Hướng Dẫn Thao Tác Chi Tiết Trên Web UI (http://localhost:3000)</div>
+          <div style="display: flex; flex-direction: column; gap: 16px; margin-top: 16px;">
+            <div style="border-left: 3px solid var(--primary); padding-left: 14px;">
+              <strong style="color: #fff;">Bước 1: Nạp Dataset (CVAT demo.zip hoặc BDD100K JSON)</strong>
+              <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+                Nhấn <em>Upload Dataset</em>. Chọn file <code>demo.zip</code> (tự động giải nén 360 frames, 2,135
+                bounding boxes, đọc Task ID 2, Job ID 2 và sinh deep-link cho từng frame).
+              </p>
+            </div>
+
+            <div style="border-left: 3px solid var(--primary); padding-left: 14px;">
+              <strong style="color: #fff;">Bước 2: Mở Phân hệ Model QC</strong>
+              <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+                Trên thanh Sidebar bên trái, nhấn vào biểu tượng chiếc khiên <strong>Model QC</strong>.
+              </p>
+            </div>
+
+            <div style="border-left: 3px solid var(--primary); padding-left: 14px;">
+              <strong style="color: #fff;">Bước 3: Chạy Rà soát Đối soát (Audit Run)</strong>
+              <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+                Chọn 1 trong 3 cách: <em>Run Pretrained Detector</em> (chạy YOLOv8 ONNX thật), <em>Simulate
+                  Benchmark</em> (kéo thanh trượt tỷ lệ lỗi giả lập), hoặc <em>Upload Predictions JSON</em>.
+              </p>
+            </div>
+
+            <div style="border-left: 3px solid var(--primary); padding-left: 14px;">
+              <strong style="color: #fff;">Bước 4: Đọc Báo cáo KPI Hiệu quả (Header Cards)</strong>
+              <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+                Quan sát 4 thẻ KPI động: Workload Reduction (%), Số ảnh cần Review (Flagged), Số lỗi Missing, và Số lỗi
+                Wrong Class.
+              </p>
+            </div>
+
+            <div style="border-left: 3px solid var(--primary); padding-left: 14px;">
+              <strong style="color: #fff;">Bước 5: Thao tác với Hàng Đợi Ưu Tiên (Prioritized Queue)</strong>
+              <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+                Lọc theo mức độ nghiêm trọng (HIGH/MED/LOW/CLEAN) hoặc loại lỗi. Các ảnh có nguy cơ lỗi cao nhất luôn
+                nằm ở đầu danh sách.
+              </p>
+            </div>
+
+            <div style="border-left: 3px solid var(--primary); padding-left: 14px;">
+              <strong style="color: #fff;">Bước 6: Đối soát Trực quan & Xử lý Lỗi Khép kín</strong>
+              <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+                Bấm <em>[ ↗ Open in CVAT ]</em> để mở tab sang CVAT sửa nhãn gốc, hoặc dùng <em>[ ⚡ 1-Click Sửa tự động
+                  ]</em> khi cần demo nhanh.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: REST API -->
+      <div id="tab-api" class="tab-pane">
+        <div class="card">
+          <div class="card-title">Đặc Tả Hệ Thống RESTful API Endpoints</div>
+          <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+            Backend FastAPI cung cấp đầy đủ các API tiêu chuẩn, sẵn sàng tích hợp vào bất kỳ CI/CD Pipeline nào:
+          </p>
+          <div class="data-table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Method & Endpoint</th>
+                  <th>Chức năng Nghiệp vụ</th>
+                  <th>Payload / Parameters</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code style="color:#34d399;">POST</code> <code>/api/datasets/{id}/qc/detect</code></td>
+                  <td>Chạy suy luận YOLOv8 ONNX và đối soát tự động</td>
+                  <td><code>conf_threshold=0.45, iou_threshold=0.50</code></td>
+                </tr>
+                <tr>
+                  <td><code style="color:#34d399;">POST</code> <code>/api/datasets/{id}/qc/synthetic-benchmark</code>
+                  </td>
+                  <td>Sinh dữ liệu mô phỏng benchmark kiểm thử độ nhạy</td>
+                  <td><code>{"missing_ratio": 0.15, "wrong_class_ratio": 0.15}</code></td>
+                </tr>
+                <tr>
+                  <td><code style="color:#38bdf8;">GET</code> <code>/api/datasets/{id}/qc/report</code></td>
+                  <td>Lấy báo cáo tổng hợp KPI và Workload Reduction</td>
+                  <td>Trả về: <code>workload_reduction_percent, flagged_samples...</code></td>
+                </tr>
+                <tr>
+                  <td><code style="color:#38bdf8;">GET</code> <code>/api/datasets/{id}/qc/queue</code></td>
+                  <td>Lấy danh sách hàng đợi đã sắp xếp theo qc_score</td>
+                  <td><code>include_clean=true|false</code></td>
+                </tr>
+                <tr>
+                  <td><code style="color:#f59e0b;">PUT</code> <code>/api/qc/issues/{issue_id}</code></td>
+                  <td>Cập nhật trạng thái duyệt & tự động sửa CSDL</td>
+                  <td><code>{"status": "ACCEPTED", "resolution_note": "..."}</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: TROUBLESHOOTING -->
+      <div id="tab-troubleshoot" class="tab-pane">
+        <div class="card">
+          <div class="card-title">Xử Lý Sự Cố Thường Gặp (Troubleshooting)</div>
+          <div style="display: flex; flex-direction: column; gap: 14px; font-size: 13px; color: var(--text-muted);">
+            <div>
+              <strong style="color: #fb7185;">1. Lỗi PowerShell: "File npm.ps1 cannot be loaded because running scripts
+                is disabled"</strong>
+              <div class="code-container" style="margin: 6px 0;">
+                <pre class="code-block">Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+# Hoặc dùng lệnh npm.cmd thay vì npm:
+npm.cmd run dev</pre>
+              </div>
+            </div>
+
+            <div>
+              <strong style="color: #fb7185;">2. Lỗi trùng cổng Address already in use (Port 8000 hoặc 3000)</strong>
+              <div class="code-container" style="margin: 6px 0;">
+                <pre class="code-block">Get-Process -Id (Get-NetTCPConnection -LocalPort 8000).OwningProcess | Stop-Process -Force
+Get-Process -Id (Get-NetTCPConnection -LocalPort 3000).OwningProcess | Stop-Process -Force</pre>
+              </div>
+            </div>
+
+            <div>
+              <strong style="color: #fb7185;">3. Reset sạch Database để chạy thử nghiệm từ đầu</strong>
+              <div class="code-container" style="margin: 6px 0;">
+                <pre class="code-block">Remove-Item -Path "d:\AI\repo\AnnoPilot-qminh\annopilot.db" -Force
+# Khi khởi động lại Backend, SQLite sẽ tự động tạo lại DB trắng tinh.</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================= -->
+  <!-- PHẦN 5: TÀI LIỆU NỀN TẢNG & KẾT LUẬN -->
+  <!-- ========================================================================= -->
+  <section class="content-section" id="sec-references">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-eyebrow">Chương 5 • Tổng kết & Cơ sở Khoa học</div>
+        <h2 class="section-title">Tài Liệu Nền Tảng & Kết Luận Đề Tài</h2>
+        <p class="section-desc">
+          Các công trình khoa học định hình nền tảng lý thuyết và đánh giá tổng quan giá trị thực tiễn mang lại.
+        </p>
+      </div>
+
+      <!-- Tài liệu tham khảo -->
+      <div class="card">
+        <div class="card-title">Tài Liệu Nền Tảng Khoa Học (References)</div>
+        <ol style="font-size: 13px; color: var(--text-muted); padding-left: 20px; line-height: 1.8;">
+          <li><strong>Xu, M., Bai, Y., & Ghanem, B. (2019):</strong> <em>Missing Labels in Object Detection</em>. CVPR
+            Workshops 2019. (Phân tích ảnh hưởng suy giảm hiệu năng khi thiếu nhãn thể hiện).</li>
+          <li><strong>Northcutt, C., Jiang, L., & Chuang, I. (2021):</strong> <em>Confident Learning: Estimating
+              Uncertainty in Dataset Labels</em>. Journal of Artificial Intelligence Research, 70. (Đặt nền tảng
+            Data-Centric AI để ước lượng nhãn nhiễu).</li>
+          <li><strong>Tkachenko, U., Thyagarajan, A., & Mueller, J. (2023):</strong> <em>ObjectLab: Automated Diagnosis
+              of Mislabeled Images in Object Detection Data</em>. ICML Workshop on Data-centric Machine Learning
+            Research. (Mở rộng phát hiện overlooked box và swapped class trong object detection).</li>
+          <li><strong>Schubert, M. et al. (2024):</strong> <em>Identifying Label Errors in Object Detection Datasets by
+              Loss Inspection</em>. WACV 2024. (Chứng minh tín hiệu loss trong quá trình huấn luyện giúp nhận diện lỗi
+            nhãn với precision cao).</li>
+          <li><strong>Yu, F. et al. (2020):</strong> <em>BDD100K: A Diverse Driving Dataset for Heterogeneous Multitask
+              Learning</em>. CVPR 2020. (Bộ dữ liệu quy chuẩn đa dạng cho xe tự hành).</li>
+        </ol>
+      </div>
+
+      <!-- Kết luận chung -->
+      <div class="callout teal">
+        <div class="callout-title" style="font-size: 16px;">
+          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          Thông Điệp Cốt Lõi Của Đề Tài & Dự Án
+        </div>
+        <p style="font-size: 14px; color: var(--text-main); margin-bottom: 8px;">
+          Điểm mạnh cốt lõi của đề tài <strong>không phải là tự động sửa nhãn gán thay con người</strong>, mà là
+          <strong>thu hẹp không gian tìm kiếm lỗi</strong>.
+        </p>
+        <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
+          Thay vì bắt reviewer phải duyệt qua 100% dữ liệu (Review Everything), hệ thống chuyển đổi thành quy trình
+          <strong>"Review What Is Most Likely Wrong"</strong>. Nhờ đó, đội ngũ gán nhãn có thể phát hiện phần lớn các
+          lỗi nghiêm trọng nhất với một tỷ lệ công sức rà soát nhỏ nhất. Nền tảng AnnoPilot là minh chứng hoàn chỉnh kết
+          nối từ lý thuyết Data-Centric AI đến công cụ thực chiến tích hợp liền mạch với CVAT.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container footer-inner">
+      <div>
+        <strong style="color: #fff;">AnnoPilot Model-Assisted QC</strong> • Chuyên đề N2-04D Nhóm 2 (2026)
+        <div style="font-size: 12px; margin-top: 4px;">Tổng hợp tài liệu từ <code>problem.md</code>,
+          <code>statement.md</code>, <code>report.md</code>, và <code>huong-dan-su-dung.md</code></div>
+      </div>
+      <div style="font-size: 12px; color: var(--text-dim);">
+        Phát triển phục vụ Đảm bảo Chất lượng Dữ liệu Xe Tự Hành (Autonomous Driving)
+      </div>
+    </div>
+  </footer>
+
+  <!-- Interactive Demo Logic Scripts -->
+  <script>
+    // Layer toggles for interactive canvas demo
+    const layers = { gt: true, model: true, issue: true };
+
+    function toggleLayer(layerName) {
+      layers[layerName] = !layers[layerName];
+      const btn = document.getElementById('btn-toggle-' + layerName);
+      if (layers[layerName]) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+
+      // Update boxes
+      if (layerName === 'gt') {
+        document.querySelectorAll('.box-gt').forEach(el => el.style.display = layers.gt ? 'block' : 'none');
+      } else if (layerName === 'model') {
+        document.querySelectorAll('.box-model').forEach(el => el.style.display = layers.model ? 'block' : 'none');
+      } else if (layerName === 'issue') {
+        document.querySelectorAll('.box-issue').forEach(el => el.style.display = layers.issue ? 'block' : 'none');
+      }
+    }
+
+    function selectDemoItem(id) {
+      document.querySelectorAll('.queue-item').forEach(el => el.classList.remove('selected'));
+      event.currentTarget.classList.add('selected');
+      if (id === 1) {
+        document.getElementById('box-2-gt').style.display = layers.gt ? 'block' : 'none';
+        document.getElementById('box-2-model').style.display = layers.model ? 'block' : 'none';
+        document.getElementById('box-2-issue').style.display = layers.issue ? 'block' : 'none';
+        document.getElementById('box-3-model').style.display = layers.model ? 'block' : 'none';
+        document.getElementById('box-3-issue').style.display = layers.issue ? 'block' : 'none';
+      } else if (id === 2) {
+        document.getElementById('box-2-gt').style.display = 'none';
+        document.getElementById('box-2-model').style.display = 'none';
+        document.getElementById('box-2-issue').style.display = 'none';
+        document.getElementById('box-3-model').style.display = layers.model ? 'block' : 'none';
+        document.getElementById('box-3-issue').style.display = layers.issue ? 'block' : 'none';
+      } else if (id === 3) {
+        document.getElementById('box-2-gt').style.display = 'none';
+        document.getElementById('box-2-model').style.display = 'none';
+        document.getElementById('box-2-issue').style.display = 'none';
+        document.getElementById('box-3-model').style.display = 'none';
+        document.getElementById('box-3-issue').style.display = 'none';
+      }
+    }
+
+    // Tabs switching logic
+    function switchTab(evt, tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+      evt.currentTarget.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+    }
+
+    // Code copy helper
+    function copyCode(elementId) {
+      const text = document.getElementById(elementId).innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        alert('Đã sao chép câu lệnh vào bộ nhớ tạm!');
+      });
+    }
+
+    // Sticky nav highlight on scroll
+    window.addEventListener('scroll', () => {
+      const sections = document.querySelectorAll('section.content-section');
+      const scrollPos = window.scrollY + 100;
+      sections.forEach(sec => {
+        const top = sec.offsetTop;
+        const height = sec.offsetHeight;
+        const id = sec.getAttribute('id');
+        if (scrollPos >= top && scrollPos < top + height) {
+          document.querySelectorAll('.nav-link').forEach(link => {
+            link.classList.remove('active');
+            if (link.getAttribute('href') === '#' + id) {
+              link.classList.add('active');
+            }
+          });
+        }
+      });
+    });
+  
+    // Live QC Score Simulator Logic
+    let currentRel = 'missing';
+
+    function setLabelRel(rel) {
+      currentRel = rel;
+      document.getElementById('btn-rel-missing').classList.toggle('active', rel === 'missing');
+      document.getElementById('btn-rel-wrong').classList.toggle('active', rel === 'wrong');
+      document.getElementById('btn-rel-match').classList.toggle('active', rel === 'match');
+      if (rel === 'wrong' && parseFloat(document.getElementById('slider-iou').value) < 0.50) {
+        document.getElementById('slider-iou').value = 0.82;
+      }
+      if (rel === 'missing' && parseFloat(document.getElementById('slider-iou').value) >= 0.30) {
+        document.getElementById('slider-iou').value = 0.12;
+      }
+      updateLiveQC();
+    }
+
+    function updateLiveQC() {
+      const conf = parseFloat(document.getElementById('slider-conf').value);
+      const iou = parseFloat(document.getElementById('slider-iou').value);
+      document.getElementById('val-conf').innerText = conf.toFixed(2);
+      document.getElementById('val-iou').innerText = iou.toFixed(2);
+
+      let formulaText = '';
+      let score = 0;
+      let badgeHtml = '';
+
+      if (currentRel === 'missing') {
+        if (conf >= 0.45 && iou < 0.30) {
+          score = conf * (1.0 - iou);
+          formulaText = `QCScore = ${conf.toFixed(2)} × (1 - ${iou.toFixed(2)}) = ${score.toFixed(3)}`;
+          const sev = score >= 0.80 ? 'HIGH' : (score >= 0.50 ? 'MED' : 'LOW');
+          badgeHtml = `<span class="pill pill-high">MISSING_OBJECT (${sev})</span>`;
+        } else {
+          score = 0;
+          formulaText = `Không đạt ngưỡng Missing (Conf < 0.45 hoặc IoU ≥ 0.30)`;
+          badgeHtml = `<span class="pill pill-clean">CLEAN (Bỏ qua)</span>`;
+        }
+      } else if (currentRel === 'wrong') {
+        if (iou >= 0.50) {
+          const prior = 1.0;
+          score = conf * iou * prior;
+          formulaText = `QCScore = ${conf.toFixed(2)} × ${iou.toFixed(2)} × 1.0 = ${score.toFixed(3)}`;
+          const sev = score >= 0.80 ? 'HIGH' : (score >= 0.50 ? 'MED' : 'LOW');
+          badgeHtml = `<span class="pill pill-med">WRONG_CLASS (${sev})</span>`;
+        } else {
+          score = 0;
+          formulaText = `IoU < 0.50 (Không đủ trùng khớp để kết luận sai class)`;
+          badgeHtml = `<span class="pill pill-clean">CLEAN (Chưa khớp)</span>`;
+        }
+      } else {
+        score = 0;
+        formulaText = `Hai bên đồng thuận cùng class: truck == truck (Hoàn hảo)`;
+        badgeHtml = `<span class="pill pill-clean">CLEAN (Chính xác)</span>`;
+      }
+
+      document.getElementById('calc-formula-display').innerText = formulaText;
+      document.getElementById('calc-badge-status').outerHTML = `<div id="calc-badge-status">${badgeHtml}</div>`;
+      document.getElementById('calc-score-val').innerText = score.toFixed(3);
+    }
+
+  </script>
+</body>
+
+</html>

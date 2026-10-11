@@ -1029,7 +1029,13 @@ def push_dataset_annotations_to_cvat(
                 with urllib.request.urlopen(get_req, timeout=10) as get_resp:
                     existing = json.loads(get_resp.read().decode('utf-8'))
                     existing_tracks = existing.get('tracks', [])
+                    for t in existing_tracks:
+                        if isinstance(t, dict):
+                            t.pop('id', None)
                     existing_tags = existing.get('tags', [])
+                    for tag in existing_tags:
+                        if isinstance(tag, dict):
+                            tag.pop('id', None)
                     existing_version = existing.get('version', 0)
             except Exception:
                 pass

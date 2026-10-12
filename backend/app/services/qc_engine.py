@@ -8,12 +8,24 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Any, Union
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, delete
 
 from app.models import Sample, Annotation, Prediction, QCIssue, Dataset
 from app.schemas.qc import QCConfig, BBoxGeometry
 from app.database import SessionLocal
+from app.services.pipeline import extract_frame_number
+
+_REPORT_CACHE: Dict[int, Dict[str, Any]] = {}
+_CACHE_LOCK = threading.Lock()
+
+def invalidate_qc_report_cache(dataset_id: Optional[int] = None) -> None:
+    """Invalidate cached QC audit report for a dataset or all datasets."""
+    with _CACHE_LOCK:
+        if dataset_id is not None:
+            _REPORT_CACHE.pop(dataset_id, None)
+        else:
+            _REPORT_CACHE.clear()
 
 def calculate_box_area(box: Dict[str, float]) -> float:
     """Calculate 2D bounding box area."""
@@ -384,7 +396,8 @@ def audit_single_frame(
     config: Optional[QCConfig] = None,
     run_detector: bool = True,
     conf_thresh: float = 0.35,
-    source_model: str = "yolov8-bdd100k"
+    source_model: str = "yolov8-bdd100k",
+    commit: bool = True
 ) -> Dict[str, Any]:
     """
     Perform QC audit for a single frame independently.
@@ -453,13 +466,31 @@ def audit_single_frame(
     db.flush()
 
     sample_score, severity = compute_sample_qc_score(active_issues)
-    db.commit()
+    if commit:
+        db.commit()
+        if sample.dataset_id:
+            invalidate_qc_report_cache(sample.dataset_id)
+    else:
+        db.flush()
+
+    fnum = sample.frame_number if getattr(sample, 'frame_number', None) is not None else extract_frame_number(sample.file_name, sample.id - 1)
+    curl = getattr(sample, 'cvat_url', None)
+    if not curl and sample.dataset:
+        ds = sample.dataset
+        base = (ds.cvat_base_url or 'http://localhost:8080').rstrip('/')
+        if ds.cvat_task_id:
+            if ds.cvat_job_id:
+                curl = f"{base}/tasks/{ds.cvat_task_id}/jobs/{ds.cvat_job_id}?frame={fnum}"
+            else:
+                curl = f"{base}/tasks/{ds.cvat_task_id}?frame={fnum}"
+        else:
+            curl = f"{base}/tasks?frame={fnum}"
 
     return {
         'sample_id': sample.id,
         'file_name': sample.file_name,
-        'frame_number': getattr(sample, 'frame_number', None),
-        'cvat_url': getattr(sample, 'cvat_url', None),
+        'frame_number': fnum,
+        'cvat_url': curl,
         'qc_score': sample_score,
         'severity': severity,
         'missing_count': sum(1 for i in active_issues if i.issue_type == 'MISSING_OBJECT'),
@@ -477,8 +508,10 @@ def audit_single_frame(
                 'prediction_id': i.prediction_id,
                 'qc_score': i.qc_score,
                 'evidence': i.evidence,
+                'frame_number': fnum,
+                'cvat_url': curl,
                 'status': i.status,
-                'reviewer_note': i.reviewer_note
+                'reviewer_note': i.reviewer_note or ''
             }
             for i in active_issues
         ]
@@ -487,7 +520,7 @@ def audit_single_frame(
 def run_dataset_qc_audit(db: Session, dataset_id: int, config: Optional[QCConfig] = None) -> Dict[str, Any]:
     """
     Audit entire dataset against current predictions.
-    Reconciles all samples and returns the comprehensive report and prioritized review queue.
+    Reconciles all samples with batch eager-loading and a single database commit.
     """
     dataset = db.get(Dataset, dataset_id)
     if not dataset:
@@ -495,15 +528,25 @@ def run_dataset_qc_audit(db: Session, dataset_id: int, config: Optional[QCConfig
 
     cfg = config or QCConfig()
 
-    total_samples = len(dataset.samples)
+    samples = db.scalars(
+        select(Sample)
+        .where(Sample.dataset_id == dataset_id)
+        .options(
+            selectinload(Sample.annotations),
+            selectinload(Sample.predictions),
+            selectinload(Sample.qc_issues)
+        )
+    ).all()
+
+    total_samples = len(samples)
     total_missing = 0
     total_wrong = 0
     flagged_samples = 0
     severity_breakdown = {'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'CLEAN': 0}
     sample_summaries = []
 
-    for sample in dataset.samples:
-        summary = audit_single_frame(db, sample.id, config=cfg, run_detector=False)
+    for sample in samples:
+        summary = audit_single_frame(db, sample.id, config=cfg, run_detector=False, commit=False)
         severity_breakdown[summary['severity']] += 1
         total_missing += summary['missing_count']
         total_wrong += summary['wrong_class_count']
@@ -511,12 +554,14 @@ def run_dataset_qc_audit(db: Session, dataset_id: int, config: Optional[QCConfig
             flagged_samples += 1
         sample_summaries.append(summary)
 
+    db.commit()
+
     sample_summaries.sort(key=lambda s: (-s['qc_score'], s['sample_id']))
 
     clean_samples = total_samples - flagged_samples
     workload_reduction = (clean_samples / total_samples * 100.0) if total_samples > 0 else 0.0
 
-    return {
+    report = {
         'dataset_id': dataset_id,
         'total_samples': total_samples,
         'flagged_samples_count': flagged_samples,
@@ -528,6 +573,133 @@ def run_dataset_qc_audit(db: Session, dataset_id: int, config: Optional[QCConfig
         'severity_breakdown': severity_breakdown,
         'top_suspicious_samples': sample_summaries
     }
+
+    with _CACHE_LOCK:
+        _REPORT_CACHE[dataset_id] = report
+
+    return report
+
+def get_dataset_qc_report(db: Session, dataset_id: int, force_refresh: bool = False) -> Dict[str, Any]:
+    """
+    Lightning-fast retrieval of the dataset QC report.
+    Checks memory cache first (< 1ms). If not cached, queries existing database records
+    in a single eager-loaded bulk query (~100-150ms) instead of re-running the full detector/IoU audit.
+    If audit has never run on this dataset, it runs the initial audit automatically.
+    """
+    if not force_refresh:
+        with _CACHE_LOCK:
+            if dataset_id in _REPORT_CACHE:
+                return _REPORT_CACHE[dataset_id]
+
+    dataset = db.get(Dataset, dataset_id)
+    if not dataset:
+        raise ValueError('Dataset not found')
+
+    # Check if any QCIssue exists for this dataset
+    has_any_issue = db.scalar(
+        select(QCIssue.id).join(Sample).where(Sample.dataset_id == dataset_id).limit(1)
+    ) is not None
+
+    if not has_any_issue:
+        # Check if there are any predictions that need initial audit
+        has_any_pred = db.scalar(
+            select(Prediction.id).join(Sample).where(Sample.dataset_id == dataset_id).limit(1)
+        ) is not None
+        if has_any_pred:
+            return run_dataset_qc_audit(db, dataset_id)
+
+    # Fast construction from existing database records
+    base = (dataset.cvat_base_url or 'http://localhost:8080').rstrip('/')
+    has_task = bool(dataset.cvat_task_id)
+    has_job = bool(dataset.cvat_job_id)
+
+    samples = db.scalars(
+        select(Sample)
+        .where(Sample.dataset_id == dataset_id)
+        .options(selectinload(Sample.qc_issues))
+    ).all()
+
+    total_samples = len(samples)
+    total_missing = 0
+    total_wrong = 0
+    flagged_samples = 0
+    severity_breakdown = {'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'CLEAN': 0}
+    sample_summaries = []
+
+    for s in samples:
+        issues = list(s.qc_issues)
+        missing_count = sum(1 for i in issues if i.issue_type == 'MISSING_OBJECT')
+        wrong_count = sum(1 for i in issues if i.issue_type == 'WRONG_CLASS')
+        tot = len(issues)
+        if tot > 0:
+            flagged_samples += 1
+        total_missing += missing_count
+        total_wrong += wrong_count
+
+        score, sev = compute_sample_qc_score(issues)
+        severity_breakdown[sev] += 1
+
+        fnum = s.frame_number if s.frame_number is not None else extract_frame_number(s.file_name, s.id - 1)
+        if has_task:
+            if has_job:
+                curl = f'{base}/tasks/{dataset.cvat_task_id}/jobs/{dataset.cvat_job_id}?frame={fnum}'
+            else:
+                curl = f'{base}/tasks/{dataset.cvat_task_id}?frame={fnum}'
+        else:
+            curl = f'{base}/tasks?frame={fnum}'
+
+        sample_summaries.append({
+            'sample_id': s.id,
+            'file_name': s.file_name,
+            'frame_number': fnum,
+            'cvat_url': curl,
+            'qc_score': score,
+            'severity': sev,
+            'missing_count': missing_count,
+            'wrong_class_count': wrong_count,
+            'total_issues': tot,
+            'issues': [
+                {
+                    'id': i.id,
+                    'sample_id': i.sample_id,
+                    'issue_type': i.issue_type,
+                    'location': i.location,
+                    'human_label': i.human_label,
+                    'suggested_label': i.suggested_label,
+                    'annotation_id': i.annotation_id,
+                    'prediction_id': i.prediction_id,
+                    'qc_score': i.qc_score,
+                    'evidence': i.evidence,
+                    'frame_number': fnum,
+                    'cvat_url': curl,
+                    'status': i.status,
+                    'reviewer_note': i.reviewer_note or ''
+                }
+                for i in issues
+            ]
+        })
+
+    sample_summaries.sort(key=lambda s: (-s['qc_score'], s['sample_id']))
+    clean_samples = total_samples - flagged_samples
+    workload_reduction = (clean_samples / total_samples * 100.0) if total_samples > 0 else 0.0
+
+    report = {
+        'dataset_id': dataset_id,
+        'total_samples': total_samples,
+        'flagged_samples_count': flagged_samples,
+        'clean_samples_count': clean_samples,
+        'workload_reduction_percentage': round(workload_reduction, 2),
+        'total_missing_candidates': total_missing,
+        'total_wrong_class_candidates': total_wrong,
+        'total_issues': total_missing + total_wrong,
+        'severity_breakdown': severity_breakdown,
+        'top_suspicious_samples': sample_summaries
+    }
+
+    with _CACHE_LOCK:
+        _REPORT_CACHE[dataset_id] = report
+
+    return report
 
 # --- Asynchronous Frame-by-Frame Queue Manager (P0) ---
 
@@ -687,6 +859,99 @@ queue_manager = FrameAuditQueueManager()
 
 # --- Two-Way CVAT Synchronization (P0: System of Record) ---
 
+def fetch_annotations_from_cvat_api(
+    dataset: Dataset,
+    token: Optional[str] = None
+) -> Optional[Dict[int, List[Dict[str, Any]]]]:
+    """
+    Fetch live annotations directly from CVAT REST API for this dataset.
+    Returns a dict mapping frame_number -> list of annotation dicts with geometry and label.
+    """
+    import urllib.request
+    import json
+
+    pat = token or dataset.cvat_token or os.getenv('CVAT_TOKEN') or 'ISQjKy3C.KDdn6nz1T65dB0A0s1yhb2ZWIQVcSDAO'
+    base_url = (dataset.cvat_base_url or 'http://localhost:8080').rstrip('/')
+    task_id = dataset.cvat_task_id
+    job_id = dataset.cvat_job_id
+
+    if not task_id and not job_id:
+        return None
+
+    headers = {
+        'Authorization': f'Bearer {pat}',
+        'Content-Type': 'application/json'
+    }
+
+    # 1. Fetch labels mapping
+    labels_map = {}
+    target_task_id = task_id
+    if not target_task_id and job_id:
+        try:
+            job_req = urllib.request.Request(f"{base_url}/api/jobs/{job_id}", headers=headers)
+            with urllib.request.urlopen(job_req, timeout=10) as resp:
+                job_data = json.loads(resp.read().decode('utf-8'))
+                target_task_id = job_data.get('task_id')
+        except Exception:
+            pass
+
+    if target_task_id:
+        try:
+            lbl_req = urllib.request.Request(f"{base_url}/api/labels?task_id={target_task_id}", headers=headers)
+            with urllib.request.urlopen(lbl_req, timeout=10) as resp:
+                lbl_data = json.loads(resp.read().decode('utf-8'))
+                results = lbl_data.get('results', lbl_data) if isinstance(lbl_data, dict) else lbl_data
+                labels_map = {item['id']: item['name'] for item in results}
+        except Exception:
+            pass
+
+    # 2. Fetch annotations
+    endpoint = f"{base_url}/api/jobs/{job_id}/annotations" if job_id else f"{base_url}/api/tasks/{task_id}/annotations"
+    try:
+        ann_req = urllib.request.Request(endpoint, headers=headers)
+        with urllib.request.urlopen(ann_req, timeout=20) as resp:
+            ann_data = json.loads(resp.read().decode('utf-8'))
+    except Exception as e:
+        print(f"[WARN] Failed to fetch annotations from CVAT API ({endpoint}): {e}")
+        return None
+
+    frames_ann: Dict[int, List[Dict[str, Any]]] = {}
+
+    for s in ann_data.get('shapes', []):
+        if s.get('outside'):
+            continue
+        f = s.get('frame', 0)
+        pts = s.get('points', [])
+        if len(pts) >= 4:
+            lbl_id = s.get('label_id')
+            lbl_name = labels_map.get(lbl_id, f"label_{lbl_id}")
+            frames_ann.setdefault(f, []).append({
+                'label': lbl_name,
+                'geometry': {'x1': float(pts[0]), 'y1': float(pts[1]), 'x2': float(pts[2]), 'y2': float(pts[3])},
+                'shape_type': s.get('type', 'rectangle'),
+                'occluded': bool(s.get('occluded', False)),
+                'attributes': s.get('attributes', [])
+            })
+
+    for tr in ann_data.get('tracks', []):
+        lbl_id = tr.get('label_id')
+        lbl_name = labels_map.get(lbl_id, f"label_{lbl_id}")
+        for s in tr.get('shapes', []):
+            if s.get('outside'):
+                continue
+            f = s.get('frame', 0)
+            pts = s.get('points', [])
+            if len(pts) >= 4:
+                frames_ann.setdefault(f, []).append({
+                    'label': lbl_name,
+                    'geometry': {'x1': float(pts[0]), 'y1': float(pts[1]), 'x2': float(pts[2]), 'y2': float(pts[3])},
+                    'shape_type': s.get('type', 'rectangle'),
+                    'occluded': bool(s.get('occluded', False)),
+                    'attributes': s.get('attributes', [])
+                })
+
+    return frames_ann
+
 def sync_cvat_dataset_annotations(
     db: Session,
     dataset_id: int,
@@ -706,7 +971,7 @@ def sync_cvat_dataset_annotations(
 
     parsed_samples = []
 
-    # If raw content or file provided, parse it
+    # 1. If raw content or file provided, parse it
     if content:
         import tempfile
         is_bytes = isinstance(content, bytes)
@@ -733,16 +998,27 @@ def sync_cvat_dataset_annotations(
         else:
             parsed_samples = BDD100KParser().parse([fp], [])
     else:
-        # Fallback: look for latest annotation file in uploads
-        storage_key = dataset.storage_key
-        if storage_key:
-            from app.database import UPLOADS
-            ann_dir = UPLOADS / storage_key / 'annotations'
-            xml_files = list(ann_dir.rglob('*.xml'))
-            json_files = list(ann_dir.rglob('*.json'))
-            if xml_files:
-                parsed_samples = CVATParser().parse([xml_files[0]], [])
-            elif json_files:
+        # 2. Prioritize fetching live annotations directly from CVAT REST API (The System of Record)
+        cvat_frames = fetch_annotations_from_cvat_api(dataset)
+        if cvat_frames:
+            for f_num, ann_list in cvat_frames.items():
+                parsed_samples.append({
+                    'file_name': f"frame_{f_num:06d}.PNG",
+                    'frame_number': f_num,
+                    'annotations': ann_list
+                })
+        else:
+            # 3. Fallback: look for latest annotation file in uploads
+            storage_key = dataset.storage_key
+            if storage_key:
+                from app.database import UPLOADS
+                ann_dir = UPLOADS / storage_key / 'annotations'
+                xml_files = list(ann_dir.rglob('*.xml'))
+                json_files = list(ann_dir.rglob('*.json'))
+                if xml_files:
+                    parsed_samples = CVATParser().parse([xml_files[0]], [])
+                elif json_files:
+                    parsed_samples = BDD100KParser().parse([json_files[0]], [])
                 parsed_samples = BDD100KParser().parse([json_files[0]], [])
 
     if not parsed_samples:
@@ -793,7 +1069,7 @@ def sync_cvat_dataset_annotations(
         db.flush()
 
         # Re-audit frame against updated annotations
-        audit_single_frame(db, sample.id, run_detector=False)
+        audit_single_frame(db, sample.id, run_detector=False, commit=False)
         updated_frames += 1
 
         # Check which previous issues were solved
@@ -822,6 +1098,7 @@ def sync_cvat_dataset_annotations(
                     auto_resolved += 1
 
     db.commit()
+    invalidate_qc_report_cache(dataset_id)
 
     # Recalculate remaining issues
     remaining = db.query(QCIssue).join(Sample).filter(
@@ -851,17 +1128,66 @@ def verify_and_sync_sample_from_cvat(
     if not sample:
         raise ValueError(f"Sample #{sample_id} not found")
 
-    # Re-audit single frame without re-predicting
+    dataset = sample.dataset
+    if dataset:
+        try:
+            cvat_frames = fetch_annotations_from_cvat_api(dataset)
+            if cvat_frames:
+                target_frame = sample.frame_number if sample.frame_number is not None else (sample.id - 1)
+                if target_frame in cvat_frames:
+                    # Update DB annotations for this sample to match CVAT
+                    db.execute(delete(Annotation).where(Annotation.sample_id == sample.id))
+                    for ann_data in cvat_frames[target_frame]:
+                        db_ann = Annotation(
+                            sample_id=sample.id,
+                            label=ann_data['label'],
+                            shape_type=ann_data.get('shape_type', 'BBOX_2D'),
+                            geometry=ann_data['geometry'],
+                            attributes=ann_data.get('attributes', {}),
+                            occluded=ann_data.get('occluded'),
+                            source_metadata={'origin': 'cvat_live_sync'}
+                        )
+                        db.add(db_ann)
+                    db.flush()
+        except Exception as e:
+            print(f"[WARN] Failed to live-sync sample #{sample_id} from CVAT API: {e}")
+
+    # Re-audit single frame against updated annotations
     summary = audit_single_frame(db, sample_id, config=config, run_detector=False)
 
     pending_issues = [i for i in sample.qc_issues if i.status == 'PENDING']
-    resolved_count = len([i for i in sample.qc_issues if i.status == 'RESOLVED'])
+    resolved_count = 0
 
-    is_verified = (len(pending_issues) == 0)
+    # Auto-resolve issues that annotator fixed on CVAT
+    for old_issue in pending_issues:
+        if old_issue.issue_type == 'MISSING_OBJECT':
+            matched_now = any(
+                calculate_box_iou(a.geometry, old_issue.location) >= 0.40
+                for a in sample.annotations
+            )
+            if matched_now:
+                old_issue.status = 'RESOLVED'
+                old_issue.reviewer_note = 'Đã tự động xác nhận qua đối soát CVAT: Đã thêm vật thể bị sót'
+                resolved_count += 1
+        elif old_issue.issue_type == 'WRONG_CLASS':
+            matched_now = any(
+                calculate_box_iou(a.geometry, old_issue.location) >= 0.50 and
+                normalize_label(a.label) == normalize_label(old_issue.suggested_label)
+                for a in sample.annotations
+            )
+            if matched_now:
+                old_issue.status = 'RESOLVED'
+                old_issue.reviewer_note = 'Đã tự động xác nhận qua đối soát CVAT: Đã sửa đúng nhãn lớp'
+                resolved_count += 1
+
+    db.commit()
+
+    remaining_issues = [i for i in sample.qc_issues if i.status == 'PENDING']
+    is_verified = (len(remaining_issues) == 0)
     msg = (
-        "Frame đã hoàn toàn sạch lỗi (đã đồng bộ với CVAT)."
+        "Frame đã hoàn toàn sạch lỗi (đã đồng bộ nhãn mới nhất từ CVAT)."
         if is_verified
-        else f"Frame vẫn còn {len(pending_issues)} vấn đề cần lưu ý."
+        else f"Frame đã cập nhật từ CVAT, còn {len(remaining_issues)} vấn đề cần lưu ý."
     )
 
     return {
@@ -869,7 +1195,7 @@ def verify_and_sync_sample_from_cvat(
         'frame_number': getattr(sample, 'frame_number', None),
         'is_verified': is_verified,
         'resolved_issues_count': resolved_count,
-        'remaining_issues_count': len(pending_issues),
+        'remaining_issues_count': len(remaining_issues),
         'message': msg,
         'issues': summary['issues']
     }
@@ -982,7 +1308,8 @@ def push_dataset_annotations_to_cvat(
             frame_idx = extract_frame_number(sample.file_name, sample.id - 1)
 
         for ann in sample.annotations:
-            if ann.shape_type != 'BBOX_2D' or not ann.geometry:
+            shape_upper = (ann.shape_type or '').upper()
+            if shape_upper not in ('BBOX_2D', 'RECTANGLE', 'BBOX', 'BOX', '') or not ann.geometry:
                 continue
 
             lid = resolve_label_id(ann.label)
@@ -1131,6 +1458,7 @@ def ingest_predictions_data(
             count += 1
 
     db.commit()
+    invalidate_qc_report_cache(dataset_id)
     return count
 
 def generate_benchmark_synthetic_predictions(

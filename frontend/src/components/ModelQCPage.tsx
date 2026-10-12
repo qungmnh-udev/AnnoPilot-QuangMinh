@@ -2102,17 +2102,26 @@ export function ModelQCPage({
             </div>
 
             <p className="muted">
-              CVAT là nguồn dữ liệu chuẩn (Single Source of Truth). Tải lên file xuất annotation mới nhất từ CVAT (XML hoặc BDD100K JSON), hoặc bấm đồng bộ để hệ thống tự động cập nhật và đối soát lại, tự động gỡ các cảnh báo đã sửa.
+              CVAT là nguồn dữ liệu chuẩn (Single Source of Truth). Hệ thống sẽ kết nối trực tiếp tới CVAT REST API (sử dụng PAT) để kéo toàn bộ nhãn mới nhất vừa sửa và lưu trên CVAT, đối soát lại và tự động gỡ các cảnh báo đã được sửa.
             </p>
 
             <form onSubmit={handleSyncCVATAnnotations}>
+              <div className="qc-reason-box" style={{ margin: "0 0 1rem 0" }}>
+                <Database size={16} />
+                <span>
+                  Nguồn đồng bộ trực tiếp: <strong>{cvatBaseUrl}</strong> · Task ID:{" "}
+                  <strong>{cvatTaskId || dataset.cvat_task_id || "Chưa cấu hình"}</strong>
+                  {cvatJobId || dataset.cvat_job_id ? ` · Job ID: ${cvatJobId || dataset.cvat_job_id}` : ""}
+                </span>
+              </div>
+
               <div className="form-group">
                 <label>
-                  <span>Tải lên file Annotations từ CVAT (.xml hoặc .json):</span>
+                  <span>Hoặc tải lên file Annotations thủ công (.xml hoặc .json — Tùy chọn):</span>
                   <input type="file" accept=".xml,.json" />
                 </label>
                 <small className="muted">
-                  Hỗ trợ định dạng CVAT for Images 1.1 (XML) và BDD100K JSON. Nếu không chọn file, hệ thống sẽ đồng bộ theo file annotation hiện hành của dataset.
+                  Nếu không chọn file, hệ thống sẽ tự động lấy nhãn trực tiếp từ CVAT server qua REST API theo PAT đã lưu.
                 </small>
               </div>
 
@@ -2121,7 +2130,7 @@ export function ModelQCPage({
                   Hủy bỏ
                 </button>
                 <button type="submit" className="primary btn-cvat-sync-trigger">
-                  <FileUp size={16} /> Bắt đầu Đồng bộ & Đối soát lại
+                  <RefreshCw size={16} /> Đồng bộ nhãn mới từ CVAT
                 </button>
               </div>
             </form>

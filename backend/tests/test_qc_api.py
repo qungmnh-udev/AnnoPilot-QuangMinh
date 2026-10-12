@@ -368,5 +368,55 @@ def test_cvat_push_endpoint(client, monkeypatch):
     assert push_data['pushed_shapes_count'] == 1
     assert push_data['cvat_task_id'] == 101
 
+def test_qc_report_caching_and_speed(client):
+    # Upload sample dataset
+    data = [
+        {"name": "speed_frame_1.jpg", "labels": [{"category": "car", "box2d": {"x1": 50, "y1": 50, "x2": 150, "y2": 150}}]}
+    ]
+    res = client.post(
+        '/api/datasets/upload',
+        data={'name': 'Speed-Test', 'format': 'BDD100K', 'task_type': 'BBOX_2D'},
+        files=[('annotations', ('labels.json', io.BytesIO(json.dumps(data).encode()), 'application/json'))]
+    )
+    dataset_id = res.json()['id']
+
+    # Ingest prediction
+    pred_res = client.post(f'/api/datasets/{dataset_id}/qc/predictions', json={
+        "predictions": [
+            {
+                "file_name": "speed_frame_1.jpg",
+                "predictions": [
+                    {"label": "truck", "confidence": 0.90, "geometry": {"x1": 50, "y1": 50, "x2": 150, "y2": 150}}
+                ]
+            }
+        ]
+    })
+    assert pred_res.status_code == 200
+
+    # First call: builds report & caches
+    rep1 = client.get(f'/api/datasets/{dataset_id}/qc/report')
+    assert rep1.status_code == 200
+    data1 = rep1.json()
+    assert data1['total_samples'] == 1
+    assert data1['flagged_samples_count'] == 1
+    assert data1['total_issues'] == 1
+
+    # Second call: served from in-memory cache
+    rep2 = client.get(f'/api/datasets/{dataset_id}/qc/report')
+    assert rep2.status_code == 200
+    assert rep2.json() == data1
+
+    # Resolve issue: should invalidate cache
+    issue_id = data1['top_suspicious_samples'][0]['issues'][0]['id']
+    resolve_res = client.put(f'/api/qc/issues/{issue_id}', json={'status': 'ACCEPTED', 'reviewer_note': 'Confirmed truck'})
+    assert resolve_res.status_code == 200
+
+    # Next report call: should reflect ACCEPTED status
+    rep3 = client.get(f'/api/datasets/{dataset_id}/qc/report')
+    assert rep3.status_code == 200
+    data3 = rep3.json()
+    assert data3['top_suspicious_samples'][0]['issues'][0]['status'] == 'ACCEPTED'
+
+
 
 

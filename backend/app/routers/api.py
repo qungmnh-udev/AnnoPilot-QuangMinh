@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from app.database import get_db, UPLOADS
 from app.models import Dataset, Sample, Annotation, Prediction, QCIssue, Settings
 from app.schemas import ScoringSettings
@@ -28,6 +28,8 @@ from app.schemas.qc import (
 from app.services.pipeline import store_files, import_dataset, sample_dict, dataset_dict
 from app.services.qc_engine import (
     run_dataset_qc_audit,
+    get_dataset_qc_report,
+    invalidate_qc_report_cache,
     audit_single_frame,
     queue_manager,
     sync_cvat_dataset_annotations,
@@ -160,7 +162,7 @@ def trigger_qc_audit(id: int, config: Optional[QCConfig] = None, db: Session = D
 @router.get('/datasets/{id}/qc/report')
 def get_qc_report(id: int, db: Session = Depends(get_db)):
     require(db, Dataset, id)
-    report = run_dataset_qc_audit(db, id)
+    report = get_dataset_qc_report(db, id)
     return report
 
 @router.post('/datasets/{id}/qc/predictions')
@@ -232,8 +234,17 @@ def run_model_detector(id: int, db: Session = Depends(get_db)):
 @router.get('/datasets/{id}/qc/queue')
 def get_qc_queue(id: int, include_clean: bool = False, db: Session = Depends(get_db)):
     dataset = require(db, Dataset, id)
+    samples_db = db.scalars(
+        select(Sample)
+        .where(Sample.dataset_id == id)
+        .options(
+            selectinload(Sample.annotations),
+            selectinload(Sample.predictions),
+            selectinload(Sample.qc_issues)
+        )
+    ).all()
     samples = []
-    for s in dataset.samples:
+    for s in samples_db:
         d = sample_dict(s, details=True, dataset=dataset)
         if include_clean or d['qc_issue_count'] > 0:
             samples.append(d)
@@ -482,6 +493,7 @@ def resolve_qc_issue(issue_id: int, body: QCIssueResolveRequest, db: Session = D
     issue.status = normalized_status
     issue.reviewer_note = body.reviewer_note or ''
     db.commit()
+    invalidate_qc_report_cache(sample.dataset_id)
 
     return {
         'id': issue.id,

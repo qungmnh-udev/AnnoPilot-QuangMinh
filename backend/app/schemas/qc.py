@@ -168,7 +168,8 @@ class CVATPushRequest(BaseModel):
     cvat_base_url: Optional[str] = None
     cvat_task_id: Optional[int] = None
     cvat_job_id: Optional[int] = None
-    mode: Optional[Literal['replace', 'create']] = 'replace'
+    mode: Optional[Literal['create', 'replace']] = 'create'
+    target_source: Optional[Literal['merged', 'predictions', 'annotations']] = 'merged'
 
 class CVATPushResponse(BaseModel):
     status: str
@@ -177,5 +178,7 @@ class CVATPushResponse(BaseModel):
     cvat_job_id: Optional[int] = None
     pushed_shapes_count: int
     cvat_url: Optional[str] = None
+    target_source: Optional[str] = 'merged'
+    mode: Optional[str] = 'create'
 
 

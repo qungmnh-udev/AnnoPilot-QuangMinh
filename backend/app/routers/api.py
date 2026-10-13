@@ -16,6 +16,7 @@ from app.schemas.qc import (
     QCConfig,
     IngestPredictionsRequest,
     QCIssueResolveRequest,
+    QCBatchResolveRequest,
     CVATConfigRequest,
     StartQueueRequest,
     FrameQueueStatusResponse,
@@ -23,7 +24,12 @@ from app.schemas.qc import (
     CVATSyncResponse,
     CVATVerifyFrameResponse,
     CVATPushRequest,
-    CVATPushResponse
+    CVATPushResponse,
+    EnsembleRunRequest,
+    DatasetModelsResponse,
+    EnsembleResponse,
+    TriadRunRequest,
+    TriadRunResponse
 )
 from app.services.pipeline import store_files, import_dataset, sample_dict, dataset_dict
 from app.services.qc_engine import (
@@ -38,6 +44,16 @@ from app.services.qc_engine import (
     ingest_predictions_data,
     generate_benchmark_synthetic_predictions,
     run_pretrained_detector_service
+)
+from app.services.ensemble import (
+    get_dataset_prediction_models,
+    run_ensemble_from_existing_predictions,
+    load_predictions_from_json,
+    run_ensemble_and_store,
+)
+from app.services.triad_detector import (
+    TRIAD_SPECS,
+    run_dataset_triad_inference,
 )
 
 router = APIRouter(prefix='/api')
@@ -231,6 +247,127 @@ def run_model_detector(id: int, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(500, f"Model detection failed: {str(e)}")
 
+# --- Multi-Model Ensemble Pre-labeling Endpoints ---
+
+@router.get('/datasets/{id}/ensemble/models', response_model=DatasetModelsResponse)
+def get_ensemble_models(id: int, db: Session = Depends(get_db)):
+    """
+    Get all model prediction sources currently ingested in this dataset,
+    along with prediction counts, to configure ensemble fusion.
+    """
+    require(db, Dataset, id)
+    return get_dataset_prediction_models(db, id)
+
+@router.post('/datasets/{id}/ensemble/run', response_model=EnsembleResponse)
+def run_ensemble_endpoint(
+    id: int,
+    payload: Optional[EnsembleRunRequest] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Execute Weighted Box Fusion (WBF) ensemble combining predictions from
+    multiple models already stored in the dataset, categorize into Tri-Tier
+    consensus, and optionally re-audit dataset QC.
+    """
+    require(db, Dataset, id)
+    p = payload or EnsembleRunRequest()
+    try:
+        result = run_ensemble_from_existing_predictions(
+            db=db,
+            dataset_id=id,
+            model_names=p.model_names,
+            model_weights=p.model_weights,
+            iou_threshold=p.iou_threshold,
+            confidence_threshold=p.confidence_threshold,
+            high_consensus_conf=p.high_consensus_conf,
+            high_consensus_iou=p.high_consensus_iou,
+            ensemble_source_model=p.ensemble_source_model,
+            run_audit=p.run_audit,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"Ensemble execution failed: {str(e)}")
+
+@router.post('/datasets/{id}/ensemble/upload-and-run')
+async def upload_multi_model_and_run_ensemble(
+    id: int,
+    file: UploadFile = File(...),
+    model_name: str = Form("external_model"),
+    iou_threshold: float = Form(0.55),
+    confidence_threshold: float = Form(0.30),
+    ensemble_source_model: str = Form("ensemble_wbf_v1"),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload predictions for an additional model (e.g. YOLO, RT-DETR, Faster R-CNN)
+    and immediately run WBF ensemble across all available models.
+    """
+    require(db, Dataset, id)
+    content = await file.read()
+    try:
+        data = json.loads(content.decode('utf-8-sig'))
+        if isinstance(data, dict):
+            data = data.get('frames', data.get('images', [data]))
+    except Exception as e:
+        raise HTTPException(422, f"Failed to parse predictions JSON: {str(e)}")
+
+    # Ingest the new model predictions
+    ingest_predictions_data(db, id, data, model_name)
+
+    # Run ensemble
+    try:
+        result = run_ensemble_from_existing_predictions(
+            db=db,
+            dataset_id=id,
+            iou_threshold=iou_threshold,
+            confidence_threshold=confidence_threshold,
+            ensemble_source_model=ensemble_source_model,
+            run_audit=True,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"Ensemble execution failed: {str(e)}")
+
+# --- Option B Triad Endpoints ---
+
+@router.get('/ensemble/triad/specs')
+def get_triad_specs():
+    """
+    Get architectural specs for Option B Triad models:
+    YOLOv8n (1-Stage CNN), Faster R-CNN MobileNetV3 (2-Stage CNN), RT-DETR-l (Vision Transformer).
+    """
+    return TRIAD_SPECS
+
+@router.post('/datasets/{id}/ensemble/run-triad', response_model=TriadRunResponse)
+def run_triad_ensemble_endpoint(
+    id: int,
+    payload: Optional[TriadRunRequest] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Execute Option B Triad Inference & WBF Ensemble:
+      1. Runs YOLOv8n + Faster R-CNN MobileNetV3 + RT-DETR on dataset frames
+      2. Persists normalized BDD100K predictions
+      3. Automatically executes Weighted Box Fusion with Tri-Tier Consensus
+    """
+    require(db, Dataset, id)
+    p = payload or TriadRunRequest()
+    try:
+        result = run_dataset_triad_inference(
+            db=db,
+            dataset_id=id,
+            models=p.models,
+            conf_thresh=p.conf_thresh,
+            sample_limit=p.sample_limit,
+            auto_ensemble=p.auto_ensemble,
+            weights=p.weights,
+            iou_thresh=p.iou_thresh
+        )
+        result["triad_specs"] = TRIAD_SPECS
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"Triad inference execution failed: {str(e)}")
+
 @router.get('/datasets/{id}/qc/queue')
 def get_qc_queue(id: int, include_clean: bool = False, db: Session = Depends(get_db)):
     dataset = require(db, Dataset, id)
@@ -380,7 +517,8 @@ def push_to_cvat_endpoint(
     cvat_base_url = payload.cvat_base_url if payload else None
     cvat_task_id = payload.cvat_task_id if payload else None
     cvat_job_id = payload.cvat_job_id if payload else None
-    mode = payload.mode if payload and payload.mode else "replace"
+    mode = payload.mode if payload and payload.mode else "create"
+    target_source = payload.target_source if payload and payload.target_source else "merged"
 
     try:
         result = push_dataset_annotations_to_cvat(
@@ -390,7 +528,8 @@ def push_to_cvat_endpoint(
             cvat_base_url=cvat_base_url,
             cvat_task_id=cvat_task_id,
             cvat_job_id=cvat_job_id,
-            mode=mode
+            mode=mode,
+            target_source=target_source
         )
         return result
     except Exception as e:
@@ -438,27 +577,9 @@ def get_cvat_link(issue_id: int, db: Session = Depends(get_db)):
         'cvat_url': url
     }
 
-@router.put('/qc/issues/{issue_id}')
-def resolve_qc_issue(issue_id: int, body: QCIssueResolveRequest, db: Session = Depends(get_db)):
-    issue = db.get(QCIssue, issue_id)
-    if not issue:
-        if body.sample_id:
-            query = select(QCIssue).where(QCIssue.sample_id == body.sample_id)
-            if body.issue_type:
-                query = query.where(QCIssue.issue_type == body.issue_type)
-            if body.suggested_label:
-                query = query.where(QCIssue.suggested_label == body.suggested_label)
-            fallback = db.scalars(query).first()
-            if fallback:
-                issue = fallback
-        if not issue:
-            raise HTTPException(404, f"QC Issue #{issue_id} not found. Vấn đề có thể đã được cập nhật sau lần chạy đối soát mới; vui lòng làm mới mẫu.")
-
-    sample = require(db, Sample, issue.sample_id)
-    normalized_status = body.status
-
-    # If resolved via 1-Click action or verified in CVAT, update the ground truth annotation in DB
-    if body.status in ('ACCEPTED', 'RESOLVED'):
+def _apply_issue_resolution(db: Session, sample: Sample, issue: QCIssue, status: str, reviewer_note: str = ""):
+    """Apply 1-Click resolution action to an issue and update ground truth annotation accordingly."""
+    if status in ('ACCEPTED', 'RESOLVED'):
         if issue.issue_type == 'MISSING_OBJECT':
             new_annotation = Annotation(
                 sample_id=sample.id,
@@ -479,7 +600,7 @@ def resolve_qc_issue(issue_id: int, body: QCIssueResolveRequest, db: Session = D
                     ann.attributes['previous_label'] = ann.label
                     ann.attributes['qc_verified'] = True
                     ann.label = issue.suggested_label
-    elif body.status == 'PENDING':
+    elif status == 'PENDING':
         # Undo: remove added annotations or restore previous label
         for ann in list(sample.annotations):
             attrs = ann.attributes or {}
@@ -490,8 +611,28 @@ def resolve_qc_issue(issue_id: int, body: QCIssueResolveRequest, db: Session = D
                 attrs.pop('previous_label', None)
                 attrs.pop('qc_verified', None)
 
-    issue.status = normalized_status
-    issue.reviewer_note = body.reviewer_note or ''
+    issue.status = status
+    issue.reviewer_note = reviewer_note or ''
+
+@router.put('/qc/issues/{issue_id}')
+def resolve_qc_issue(issue_id: int, body: QCIssueResolveRequest, db: Session = Depends(get_db)):
+    issue = db.get(QCIssue, issue_id)
+    if not issue:
+        if body.sample_id:
+            query = select(QCIssue).where(QCIssue.sample_id == body.sample_id)
+            if body.issue_type:
+                query = query.where(QCIssue.issue_type == body.issue_type)
+            if body.suggested_label:
+                query = query.where(QCIssue.suggested_label == body.suggested_label)
+            fallback = db.scalars(query).first()
+            if fallback:
+                issue = fallback
+        if not issue:
+            raise HTTPException(404, f"QC Issue #{issue_id} not found. Vấn đề có thể đã được cập nhật sau lần chạy đối soát mới; vui lòng làm mới mẫu.")
+
+    sample = require(db, Sample, issue.sample_id)
+    _apply_issue_resolution(db, sample, issue, body.status, body.reviewer_note or "")
+
     db.commit()
     invalidate_qc_report_cache(sample.dataset_id)
 
@@ -501,4 +642,73 @@ def resolve_qc_issue(issue_id: int, body: QCIssueResolveRequest, db: Session = D
         'reviewer_note': issue.reviewer_note,
         'issue_type': issue.issue_type,
         'suggested_label': issue.suggested_label
+    }
+
+@router.post('/samples/{sample_id}/qc/batch-resolve')
+def batch_resolve_sample_issues_endpoint(
+    sample_id: int,
+    body: QCBatchResolveRequest,
+    db: Session = Depends(get_db)
+):
+    sample = require(db, Sample, sample_id)
+    pending_issues = [i for i in sample.qc_issues if i.status == 'PENDING']
+
+    if body.issue_ids:
+        targets = [i for i in pending_issues if i.id in body.issue_ids]
+    elif body.consensus_tier:
+        targets = [
+            i for i in pending_issues
+            if (i.evidence or {}).get('consensus_tier') == body.consensus_tier
+        ]
+    else:
+        targets = pending_issues
+
+    resolved_ids = []
+    for issue in targets:
+        _apply_issue_resolution(db, sample, issue, body.status, body.reviewer_note or "")
+        resolved_ids.append(issue.id)
+
+    db.commit()
+    invalidate_qc_report_cache(sample.dataset_id)
+
+    return {
+        'success': True,
+        'sample_id': sample_id,
+        'resolved_count': len(resolved_ids),
+        'resolved_issue_ids': resolved_ids
+    }
+
+@router.post('/datasets/{dataset_id}/qc/batch-resolve')
+def batch_resolve_dataset_issues_endpoint(
+    dataset_id: int,
+    body: QCBatchResolveRequest,
+    db: Session = Depends(get_db)
+):
+    dataset = require(db, Dataset, dataset_id)
+    total_resolved = 0
+    resolved_ids = []
+
+    for sample in dataset.samples:
+        pending_issues = [i for i in sample.qc_issues if i.status == 'PENDING']
+        if body.consensus_tier:
+            targets = [
+                i for i in pending_issues
+                if (i.evidence or {}).get('consensus_tier') == body.consensus_tier
+            ]
+        else:
+            targets = pending_issues
+
+        for issue in targets:
+            _apply_issue_resolution(db, sample, issue, body.status, body.reviewer_note or "")
+            resolved_ids.append(issue.id)
+            total_resolved += 1
+
+    db.commit()
+    invalidate_qc_report_cache(dataset_id)
+
+    return {
+        'success': True,
+        'dataset_id': dataset_id,
+        'resolved_count': total_resolved,
+        'resolved_issue_ids': resolved_ids
     }

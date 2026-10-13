@@ -53,6 +53,13 @@ export type QCIssue = {
     max_iou_with_any_annotation?: number;
     model_confidence: number;
     reason: string;
+    consensus_tier?: number;
+    num_models_agreed?: number;
+    tier_reason?: string;
+    contributing_models?: string[];
+    model_votes?: Record<string, number>;
+    source_model?: string;
+    [key: string]: any;
   };
   frame_number?: number | null;
   cvat_url?: string | null;
@@ -190,6 +197,62 @@ export type CVATPushResponse = {
   cvat_job_id?: number | null;
   pushed_shapes_count: number;
   cvat_url?: string | null;
+  target_source?: string;
+  mode?: string;
 };
 
+// --- Multi-Model Ensemble & WBF Types ---
 
+export type DatasetModelsResponse = {
+  dataset_id: number;
+  models: string[];
+  counts: Record<string, number>;
+  has_ensemble: boolean;
+};
+
+export type EnsembleTierBreakdown = {
+  tier_1_high_consensus: number;
+  tier_2_class_disagreement: number;
+  tier_3_model_divergence: number;
+};
+
+export type EnsembleResponse = {
+  status: string;
+  message?: string;
+  ensemble_source_model?: string;
+  models_used?: string[];
+  total_fused_predictions?: number;
+  tier_breakdown?: EnsembleTierBreakdown;
+  files_processed?: number;
+  audit_summary?: QCAuditReport;
+};
+
+export type EnsembleRunRequest = {
+  model_names?: string[];
+  model_weights?: Record<string, number>;
+  iou_threshold?: number;
+  confidence_threshold?: number;
+  high_consensus_conf?: number;
+  high_consensus_iou?: number;
+  ensemble_source_model?: string;
+  run_audit?: boolean;
+};
+
+export type TriadRunRequest = {
+  models?: string[];
+  weights?: Record<string, number>;
+  conf_thresh?: number;
+  iou_thresh?: number;
+  sample_limit?: number | null;
+  auto_ensemble?: boolean;
+};
+
+export type TriadRunResponse = {
+  success: boolean;
+  frames_processed: number;
+  selected_models: string[];
+  model_counts: Record<string, number>;
+  total_predictions: number;
+  ensemble_result?: EnsembleResponse;
+  triad_specs?: Record<string, { label: string; family: string; architecture: string; default_weight: number; description: string }>;
+};

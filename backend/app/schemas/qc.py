@@ -98,6 +98,14 @@ class QCIssueResolveRequest(BaseModel):
     issue_type: Optional[str] = None
     suggested_label: Optional[str] = None
 
+class QCBatchResolveRequest(BaseModel):
+    sample_id: Optional[int] = None
+    dataset_id: Optional[int] = None
+    issue_ids: Optional[List[int]] = None
+    consensus_tier: Optional[int] = None  # e.g. 1 for Tier 1 high consensus
+    status: Literal['ACCEPTED', 'REJECTED', 'RESOLVED', 'FALSE_POSITIVE'] = 'ACCEPTED'
+    reviewer_note: Optional[str] = "Batch resolved via multi-model consensus"
+
 class QCSampleSummary(BaseModel):
     sample_id: int
     file_name: str
@@ -180,5 +188,63 @@ class CVATPushResponse(BaseModel):
     cvat_url: Optional[str] = None
     target_source: Optional[str] = 'merged'
     mode: Optional[str] = 'create'
+
+# --- Multi-Model Ensemble & WBF Pre-labeling Schemas ---
+
+class EnsembleRunRequest(BaseModel):
+    model_names: Optional[List[str]] = None
+    model_weights: Optional[Dict[str, float]] = None
+    iou_threshold: float = Field(0.55, ge=0.1, le=0.95, description="IoU threshold for clustering boxes across models")
+    confidence_threshold: float = Field(0.30, ge=0.0, le=1.0, description="Minimum fused confidence to keep")
+    high_consensus_conf: float = Field(0.85, ge=0.1, le=1.0, description="Confidence threshold for Tier 1 high consensus")
+    high_consensus_iou: float = Field(0.60, ge=0.1, le=1.0, description="IoU threshold for Tier 1 high consensus")
+    ensemble_source_model: str = Field("ensemble_wbf_v1", description="Identifier for fused predictions")
+    run_audit: bool = Field(True, description="Automatically re-run QC audit after fusion")
+
+class DatasetModelsResponse(BaseModel):
+    dataset_id: int
+    models: List[str]
+    counts: Dict[str, int]
+    has_ensemble: bool = False
+
+class EnsembleResponse(BaseModel):
+    status: str
+    message: Optional[str] = None
+    ensemble_source_model: Optional[str] = None
+    models_used: Optional[List[str]] = None
+    total_fused_predictions: Optional[int] = 0
+    tier_breakdown: Optional[Dict[str, int]] = None
+    files_processed: Optional[int] = 0
+    audit_summary: Optional[Dict[str, Any]] = None
+
+class TriadModelInfo(BaseModel):
+    id: str
+    label: str
+    family: str
+    architecture: str
+    default_weight: float
+    description: str
+
+class TriadRunRequest(BaseModel):
+    models: Optional[List[str]] = ["yolov8n", "fasterrcnn_mobilenet_v3", "rtdetr_l"]
+    weights: Optional[Dict[str, float]] = {
+        "yolov8n": 1.0,
+        "fasterrcnn_mobilenet_v3": 1.0,
+        "rtdetr_l": 1.2
+    }
+    conf_thresh: float = Field(0.35, ge=0.05, le=1.0)
+    iou_thresh: float = Field(0.55, ge=0.1, le=0.95)
+    sample_limit: Optional[int] = Field(None, description="Limit number of frames for fast testing (None for all)")
+    auto_ensemble: bool = Field(True, description="Automatically run Tri-Tier WBF ensemble after inference")
+
+class TriadRunResponse(BaseModel):
+    success: bool
+    frames_processed: int
+    selected_models: List[str]
+    model_counts: Dict[str, int]
+    total_predictions: int
+    ensemble_result: Optional[Dict[str, Any]] = None
+    triad_specs: Optional[Dict[str, Any]] = None
+
 
 

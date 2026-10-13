@@ -44,6 +44,10 @@ import {
   Radio,
   FileUp,
   Send,
+  MoreHorizontal,
+  ChevronDown,
+  Settings,
+  Zap,
 } from "lucide-react";
 import { api, json } from "../api";
 import type {
@@ -57,6 +61,11 @@ import type {
   CVATSyncResponse,
   CVATVerifyFrameResponse,
   CVATPushResponse,
+  DatasetModelsResponse,
+  EnsembleResponse,
+  EnsembleRunRequest,
+  TriadRunRequest,
+  TriadRunResponse,
 } from "../types";
 
 // ROI Snapshot Component for Issue Cards
@@ -200,6 +209,14 @@ export function ModelQCPage({
   const [showPred, setShowPred] = useState<boolean>(true);
   const [showIssues, setShowIssues] = useState<boolean>(true);
 
+  // Canvas layer declutter & model filtering states
+  const [selectedPredModelFilter, setSelectedPredModelFilter] = useState<string>("auto");
+  const [labelDensityMode, setLabelDensityMode] = useState<"minimal" | "verbose">("minimal");
+  const [minPredConf, setMinPredConf] = useState<number>(0.35);
+  const [hoveredPredId, setHoveredPredId] = useState<number | null>(null);
+  const [hoveredAnnId, setHoveredAnnId] = useState<number | null>(null);
+  const [hoveredIssueId, setHoveredIssueId] = useState<number | null>(null);
+
   // Modals
   const [showBenchmarkModal, setShowBenchmarkModal] = useState<boolean>(false);
   const [benchmarkMissingRatio, setBenchmarkMissingRatio] = useState<number>(0.15);
@@ -230,9 +247,48 @@ export function ModelQCPage({
   const [cvatSyncResult, setCvatSyncResult] = useState<CVATSyncResponse | null>(null);
   const [showCVATPushModal, setShowCVATPushModal] = useState<boolean>(false);
   const [cvatPushResult, setCvatPushResult] = useState<CVATPushResponse | null>(null);
-  const [cvatPushMode, setCvatPushMode] = useState<"replace" | "create">("replace");
+  const [cvatPushMode, setCvatPushMode] = useState<"replace" | "create">("create");
+  const [cvatPushSource, setCvatPushSource] = useState<"merged" | "predictions" | "annotations">("merged");
   const [verifyingFrameId, setVerifyingFrameId] = useState<number | null>(null);
   const [auditingFrameId, setAuditingFrameId] = useState<number | null>(null);
+
+  // Multi-Model Ensemble states
+  const [showEnsembleModal, setShowEnsembleModal] = useState<boolean>(false);
+  const [availableModelsData, setAvailableModelsData] = useState<DatasetModelsResponse | null>(null);
+  const [selectedEnsembleModels, setSelectedEnsembleModels] = useState<string[]>([]);
+  const [modelWeights, setModelWeights] = useState<Record<string, number>>({});
+  const [ensembleIouThresh, setEnsembleIouThresh] = useState<number>(0.55);
+  const [ensembleConfThresh, setEnsembleConfThresh] = useState<number>(0.30);
+  const [ensembleHighConsensusConf, setEnsembleHighConsensusConf] = useState<number>(0.85);
+  const [ensembleResult, setEnsembleResult] = useState<EnsembleResponse | null>(null);
+  const [newModelFile, setNewModelFile] = useState<File | null>(null);
+  const [newModelName, setNewModelName] = useState<string>("");
+  const [runningTriad, setRunningTriad] = useState<boolean>(false);
+  const [triadLimit, setTriadLimit] = useState<number | null>(null);
+  const [triadModels, setTriadModels] = useState<string[]>([
+    "yolov8n",
+    "fasterrcnn_mobilenet_v3",
+    "rtdetr_l",
+  ]);
+
+  // More tools menu dropdown state
+  const [showMoreToolsMenu, setShowMoreToolsMenu] = useState<boolean>(false);
+  const moreToolsMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close more tools menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (moreToolsMenuRef.current && !moreToolsMenuRef.current.contains(event.target as Node)) {
+        setShowMoreToolsMenu(false);
+      }
+    };
+    if (showMoreToolsMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showMoreToolsMenu]);
 
   // Polling effect for background frame queue
   useEffect(() => {
@@ -265,6 +321,9 @@ export function ModelQCPage({
 
   useEffect(() => {
     setFocusedIssueId(null);
+    setHoveredPredId(null);
+    setHoveredAnnId(null);
+    setHoveredIssueId(null);
   }, [selectedSample?.id]);
 
   // Zoom & Pan state for main canvas
@@ -643,12 +702,144 @@ export function ModelQCPage({
             cvat_task_id: cvatTaskId.trim() ? parseInt(cvatTaskId.trim(), 10) : undefined,
             cvat_job_id: cvatJobId.trim() ? parseInt(cvatJobId.trim(), 10) : undefined,
             mode: cvatPushMode,
+            target_source: cvatPushSource,
           }),
         );
         setCvatPushResult(res);
         await onRefreshDataset();
       } catch (err: any) {
         setError(err?.message || "Đẩy nhãn sang CVAT thất bại");
+      }
+    });
+  };
+
+  // Open Ensemble Modal and discover models
+  const handleOpenEnsembleModal = async () => {
+    void act("Đang tải danh sách model trong dataset...", async () => {
+      try {
+        const data = await api<DatasetModelsResponse>(`/datasets/${dataset.id}/ensemble/models`);
+        setAvailableModelsData(data);
+        const nonEnsemble = data.models.filter((m) => !m.startsWith("ensemble_"));
+        setSelectedEnsembleModels(nonEnsemble.length > 0 ? nonEnsemble : data.models);
+        const weights: Record<string, number> = {};
+        for (const m of data.models) {
+          weights[m] = 1.0;
+        }
+        setModelWeights(weights);
+        setShowEnsembleModal(true);
+      } catch (err: any) {
+        setError(err?.message || "Không thể tải danh sách model");
+      }
+    });
+  };
+
+  // Run WBF Ensemble
+  const handleRunEnsemble = async () => {
+    if (selectedEnsembleModels.length === 0) {
+      setError("Vui lòng chọn ít nhất 1 model để thực hiện Ensemble.");
+      return;
+    }
+    void act("Đang kết hợp dự đoán (WBF Ensemble & Tri-Tier Classification)...", async () => {
+      try {
+        const res = await api<EnsembleResponse>(
+          `/datasets/${dataset.id}/ensemble/run`,
+          json("POST", {
+            model_names: selectedEnsembleModels,
+            model_weights: modelWeights,
+            iou_threshold: ensembleIouThresh,
+            confidence_threshold: ensembleConfThresh,
+            high_consensus_conf: ensembleHighConsensusConf,
+            ensemble_source_model: "ensemble_wbf_v1",
+            run_audit: true,
+          }),
+        );
+        setEnsembleResult(res);
+        await onRefreshDataset();
+        await loadQCData();
+      } catch (err: any) {
+        setError(err?.message || "Thực thi WBF Ensemble thất bại");
+      }
+    });
+  };
+
+  // Upload an additional model prediction file and fuse
+  const handleUploadAdditionalModel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newModelFile) {
+      setError("Vui lòng chọn file JSON dự đoán của model");
+      return;
+    }
+    const modelName = newModelName.trim() || `model_${Date.now()}`;
+    void act(`Đang tải lên model '${modelName}' và kết hợp WBF...`, async () => {
+      try {
+        const formData = new FormData();
+        formData.append("file", newModelFile);
+        formData.append("model_name", modelName);
+        formData.append("iou_threshold", String(ensembleIouThresh));
+        formData.append("confidence_threshold", String(ensembleConfThresh));
+        formData.append("ensemble_source_model", "ensemble_wbf_v1");
+
+        const res = await api<EnsembleResponse>(`/datasets/${dataset.id}/ensemble/upload-and-run`, {
+          method: "POST",
+          body: formData,
+        });
+        setEnsembleResult(res);
+        setNewModelFile(null);
+        setNewModelName("");
+        // Reload model list
+        const modelsData = await api<DatasetModelsResponse>(`/datasets/${dataset.id}/ensemble/models`);
+        setAvailableModelsData(modelsData);
+        setSelectedEnsembleModels(modelsData.models.filter((m) => !m.startsWith("ensemble_")));
+        await onRefreshDataset();
+        await loadQCData();
+      } catch (err: any) {
+        setError(err?.message || "Upload model và kết hợp thất bại");
+      }
+    });
+  };
+
+  // Run Option B Triad Ensemble (YOLOv8n + Faster R-CNN + RT-DETR)
+  const handleRunTriadEnsemble = async (customLimit?: number | null) => {
+    setRunningTriad(true);
+    const limitToUse = customLimit !== undefined ? customLimit : triadLimit;
+    void act("Đang chạy inference Bộ 3 Mô hình Phương án B (YOLOv8 + Faster R-CNN + RT-DETR)...", async () => {
+      try {
+        const res = await api<TriadRunResponse>(`/datasets/${dataset.id}/ensemble/run-triad`, {
+          method: "POST",
+          body: JSON.stringify({
+            models: triadModels,
+            weights: {
+              yolov8n: modelWeights["yolov8n"] ?? 1.0,
+              fasterrcnn_mobilenet_v3: modelWeights["fasterrcnn_mobilenet_v3"] ?? 1.0,
+              rtdetr_l: modelWeights["rtdetr_l"] ?? 1.2,
+            },
+            conf_thresh: ensembleConfThresh,
+            iou_thresh: ensembleIouThresh,
+            sample_limit: limitToUse,
+            auto_ensemble: true,
+          }),
+        });
+        if (res.ensemble_result) {
+          setEnsembleResult(res.ensemble_result);
+        }
+        const modelsData = await api<DatasetModelsResponse>(`/datasets/${dataset.id}/ensemble/models`);
+        setAvailableModelsData(modelsData);
+        setSelectedEnsembleModels(modelsData.models.filter((m) => !m.startsWith("ensemble_")));
+        await onRefreshDataset();
+        await loadQCData();
+        alert(
+          `🎉 Hoàn tất Phương án B!\n` +
+          `• Frames đã xử lý: ${res.frames_processed}\n` +
+          `• Tổng số dự đoán: ${res.total_predictions.toLocaleString()} boxes\n` +
+          `  - YOLOv8n (1-Stage): ${res.model_counts?.yolov8n || 0}\n` +
+          `  - Faster R-CNN (2-Stage): ${res.model_counts?.fasterrcnn_mobilenet_v3 || 0}\n` +
+          `  - RT-DETR-l (Transformer): ${res.model_counts?.rtdetr_l || 0}\n` +
+          `• Pre-labels đồng thuận WBF: ${res.ensemble_result?.total_fused_predictions || 0} boxes!`
+        );
+      } catch (err: any) {
+        setError(err?.message || "Chạy inference Phương án B thất bại");
+      } finally {
+        setRunningTriad(false);
       }
     });
   };
@@ -710,6 +901,34 @@ export function ModelQCPage({
     });
   };
 
+  // Batch 1-Click resolve high-consensus issues (drastically minimizes reviewer clicks)
+  const handleBatchResolveConsensus = async (tier = 1) => {
+    if (!selectedSample) return;
+    void act(
+      tier === 1
+        ? "Đang tự động áp dụng toàn bộ các nghi vấn đạt đồng thuận cao (Tier 1)…"
+        : "Đang tự động áp dụng các nghi vấn theo đồng thuận…",
+      async () => {
+        try {
+          await api(
+            `/samples/${selectedSample.id}/qc/batch-resolve`,
+            json("POST", {
+              consensus_tier: tier,
+              status: "ACCEPTED",
+              reviewer_note: "1-Click áp dụng đồng thuận từ Multi-Model Ensemble (WBF)",
+            }),
+          );
+          await refreshCurrentSample(selectedSample.id);
+          const reportData = await api<QCAuditReport>(`/datasets/${dataset.id}/qc/report`);
+          setReport(reportData);
+        } catch (err: any) {
+          setError(err?.message || "Lỗi tự động áp dụng đồng thuận");
+          await refreshCurrentSample(selectedSample.id);
+        }
+      },
+    );
+  };
+
   // Filtered Queue
   const filteredQueue = useMemo(() => {
     return queue.filter((item) => {
@@ -730,6 +949,37 @@ export function ModelQCPage({
     });
   }, [queue, severityFilter, issueTypeFilter, searchQuery]);
 
+  // Model filter & prediction filtering for selectedSample (decluttering)
+  const sampleModels = useMemo(() => {
+    if (!selectedSample?.predictions) return [];
+    const set = new Set<string>();
+    for (const p of selectedSample.predictions) {
+      if (p.source_model) set.add(p.source_model);
+    }
+    return Array.from(set);
+  }, [selectedSample]);
+
+  const activeModel = useMemo(() => {
+    if (selectedPredModelFilter !== "auto" && selectedPredModelFilter !== "all") {
+      if (sampleModels.includes(selectedPredModelFilter)) {
+        return selectedPredModelFilter;
+      }
+    }
+    // Auto mode: prioritize ensemble models first
+    const ensembleModel = sampleModels.find((m) => m.startsWith("ensemble_"));
+    if (ensembleModel) return ensembleModel;
+    return sampleModels[0] || "all";
+  }, [selectedPredModelFilter, sampleModels]);
+
+  const displayedPredictions = useMemo(() => {
+    if (!selectedSample?.predictions) return [];
+    let preds = selectedSample.predictions.filter((p) => (p.confidence ?? 1.0) >= minPredConf);
+    if (selectedPredModelFilter === "all") {
+      return preds;
+    }
+    return preds.filter((p) => p.source_model === activeModel);
+  }, [selectedSample, minPredConf, selectedPredModelFilter, activeModel]);
+
   return (
     <div className="qc-page">
       {/* Top Header & Action Controls */}
@@ -749,30 +999,28 @@ export function ModelQCPage({
         </div>
 
         <div className="qc-actions-bar">
-          <button
-            className="secondary btn-arch-highlight"
-            disabled={busy}
-            onClick={() => setShowArchModal(true)}
-            title="Xem sơ đồ kiến trúc hệ thống CVAT × QC Dashboard theo tài liệu thiết kế"
-          >
-            <Workflow size={16} /> Kiến trúc CVAT × QC
-          </button>
-          <button
-            className="secondary"
-            disabled={busy}
-            onClick={() => setShowCVATModal(true)}
-            title="Cấu hình URL CVAT Server, Task ID và Job ID"
-          >
-            <Link2 size={16} /> Cấu hình CVAT {dataset.cvat_task_id ? `(#${dataset.cvat_task_id})` : ""}
-          </button>
+          {/* Action 1: Chạy Streaming Queue (Primary) */}
           <button
             className="primary btn-streaming-start"
             disabled={busy || isQueueRunning}
             onClick={() => handleStartQueue(false)}
             title="Chạy kiểm tra lần lượt từng frame dạng streaming/incremental không block hệ thống"
           >
-            <Radio size={16} /> {isQueueRunning ? "Đang xử lý Streaming..." : "Chạy Queue Từng Frame"}
+            <Radio size={16} /> {isQueueRunning ? "Đang xử lý Streaming..." : "Chạy Queue QC"}
           </button>
+
+          {/* Action 2: Multi-Model Ensemble & Pre-labeling (WBF) */}
+          <button
+            className="secondary btn-ensemble-trigger"
+            style={{ borderColor: "#a855f7", color: "#c084fc", background: "rgba(168, 85, 247, 0.08)" }}
+            disabled={busy}
+            onClick={() => void handleOpenEnsembleModal()}
+            title="Kết hợp dự đoán đa mô hình (Multi-Model WBF) để tạo pre-label đồng thuận chất lượng cao"
+          >
+            <Layers size={16} /> Multi-Model WBF
+          </button>
+
+          {/* Action 3: Đồng bộ từ CVAT (Inbound) */}
           <button
             className="secondary btn-cvat-sync-trigger"
             disabled={busy}
@@ -781,39 +1029,154 @@ export function ModelQCPage({
           >
             <FileUp size={16} /> Đồng bộ từ CVAT
           </button>
+
+          {/* Action 4: Đẩy nhãn sang CVAT (Outbound) */}
           <button
             className="secondary btn-cvat-push-trigger"
             disabled={busy}
             onClick={() => setShowCVATPushModal(true)}
-            title="Đẩy các nhãn đã được duyệt (Ground Truth chuẩn) sang CVAT Server qua REST API"
+            title="Đẩy các nhãn đã được duyệt hoặc nhãn AI sang CVAT Server qua REST API"
           >
             <Send size={16} /> Đẩy nhãn sang CVAT
           </button>
-          {selectedSample && (
+
+          {/* Action 5: Dropdown Menu Công cụ Nâng cao / Khác */}
+          <div className="qc-dropdown-wrap" ref={moreToolsMenuRef}>
             <button
+              type="button"
               className="secondary"
-              disabled={busy || auditingFrameId === selectedSample.id}
-              onClick={() => handleAuditSingleFrame(selectedSample.id)}
-              title="Chạy lại phát hiện và đối soát riêng frame này theo yêu cầu"
+              disabled={busy}
+              onClick={() => setShowMoreToolsMenu(!showMoreToolsMenu)}
+              title="Các công cụ nâng cao, cấu hình và tính năng thử nghiệm"
+              style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}
             >
-              <RefreshCw size={14} className={auditingFrameId === selectedSample.id ? "spin" : ""} />
-              Kiểm tra Frame này
+              <MoreHorizontal size={16} />
+              <span>Công cụ khác</span>
+              <ChevronDown size={14} style={{ transform: showMoreToolsMenu ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
             </button>
-          )}
-          <button className="secondary" disabled={busy} onClick={handleRunDetector} title="Chạy detector hàng loạt trên toàn bộ dataset">
-            <Bot size={16} /> Chạy toàn bộ (Batch)
-          </button>
-          <button className="secondary" disabled={busy} onClick={() => setShowBenchmarkModal(true)}>
-            <Sparkles size={16} /> Simulate Benchmark
-          </button>
-          <button className="secondary" disabled={busy} onClick={() => setShowUploadModal(true)}>
-            <Upload size={16} /> Upload Predictions JSON
-          </button>
-          <button className="icon-button" title="Refresh Audit" disabled={busy} onClick={() => void loadQCData()}>
+
+            {showMoreToolsMenu && (
+              <div className="qc-dropdown-menu">
+                <div className="qc-dropdown-section-title">Dữ liệu & Model</div>
+                <button
+                  type="button"
+                  className="qc-dropdown-item"
+                  onClick={() => {
+                    setShowMoreToolsMenu(false);
+                    setShowUploadModal(true);
+                  }}
+                >
+                  <Upload size={15} style={{ color: "var(--accent)" }} />
+                  <span>Upload Predictions JSON</span>
+                </button>
+                <button
+                  type="button"
+                  className="qc-dropdown-item"
+                  onClick={() => {
+                    setShowMoreToolsMenu(false);
+                    handleOpenEnsembleModal();
+                  }}
+                >
+                  <Sparkles size={15} style={{ color: "#c084fc" }} />
+                  <span>Inference Bộ 3 Phương Án B (Triad)</span>
+                </button>
+                <button
+                  type="button"
+                  className="qc-dropdown-item"
+                  onClick={() => {
+                    setShowMoreToolsMenu(false);
+                    handleRunDetector();
+                  }}
+                >
+                  <Bot size={15} style={{ color: "#38bdf8" }} />
+                  <span>Chạy Detector Batch (Cũ)</span>
+                </button>
+
+                <div className="qc-dropdown-divider" />
+                <div className="qc-dropdown-section-title">Thử nghiệm & Benchmark</div>
+                <button
+                  type="button"
+                  className="qc-dropdown-item"
+                  onClick={() => {
+                    setShowMoreToolsMenu(false);
+                    setShowBenchmarkModal(true);
+                  }}
+                >
+                  <Sparkles size={15} style={{ color: "#facc15" }} />
+                  <span>Simulate Benchmark Sandbox</span>
+                </button>
+
+                <div className="qc-dropdown-divider" />
+                <div className="qc-dropdown-section-title">Cấu hình & Hệ thống</div>
+                <button
+                  type="button"
+                  className="qc-dropdown-item"
+                  onClick={() => {
+                    setShowMoreToolsMenu(false);
+                    setShowCVATModal(true);
+                  }}
+                >
+                  <Link2 size={15} style={{ color: "#a855f7" }} />
+                  <span>Cấu hình kết nối CVAT {dataset.cvat_task_id ? `(#${dataset.cvat_task_id})` : ""}</span>
+                </button>
+                <button
+                  type="button"
+                  className="qc-dropdown-item"
+                  onClick={() => {
+                    setShowMoreToolsMenu(false);
+                    setShowArchModal(true);
+                  }}
+                >
+                  <Workflow size={15} style={{ color: "#10b981" }} />
+                  <span>Sơ đồ Kiến trúc CVAT × QC</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Action 6: Nút Refresh icon */}
+          <button className="icon-button" title="Làm mới dữ liệu QC" disabled={busy} onClick={() => void loadQCData()}>
             <RotateCcw size={16} />
           </button>
         </div>
       </div>
+
+      {ensembleResult && (
+        <div className="alert info" style={{ background: "rgba(168, 85, 247, 0.12)", border: "1px solid #a855f7", color: "#f3e8ff", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", borderRadius: "8px", padding: "0.875rem 1.25rem", margin: "1rem 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <Layers size={20} style={{ color: "#c084fc", flexShrink: 0 }} />
+            <div>
+              <strong style={{ color: "#d8b4fe", fontSize: "0.95rem" }}>
+                Multi-Model WBF: Đã kết hợp thành công {ensembleResult.total_fused_predictions} bounding boxes từ {ensembleResult.models_used?.join(", ")}
+              </strong>
+              <div style={{ fontSize: "0.85rem", color: "#e9d5ff", marginTop: "2px" }}>
+                🎯 Tier 1 (Đồng thuận cao): <strong>{ensembleResult.tier_breakdown?.tier_1_high_consensus || 0}</strong> ({ensembleResult.total_fused_predictions ? Math.round(((ensembleResult.tier_breakdown?.tier_1_high_consensus || 0) / ensembleResult.total_fused_predictions) * 100) : 0}%) ·{" "}
+                ⚠️ Tier 2 (Bất đồng class): <strong>{ensembleResult.tier_breakdown?.tier_2_class_disagreement || 0}</strong> ·{" "}
+                🔍 Tier 3 (Chỉ 1 model): <strong>{ensembleResult.tier_breakdown?.tier_3_model_divergence || 0}</strong>
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button
+              className="secondary"
+              style={{ padding: "0.4rem 0.8rem", fontSize: "0.85rem", borderColor: "#a855f7", color: "#e9d5ff" }}
+              onClick={() => {
+                setCvatPushSource("predictions");
+                setShowCVATPushModal(true);
+              }}
+            >
+              <Send size={14} /> Đẩy Pre-label sang CVAT
+            </button>
+            <button
+              className="icon-button"
+              style={{ width: "28px", height: "28px", padding: 0 }}
+              onClick={() => setEnsembleResult(null)}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {cvatPushResult && (
         <div className="alert success" style={{ background: "rgba(34, 197, 94, 0.12)", border: "1px solid #22c55e", color: "#f0fdf4", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", borderRadius: "8px", padding: "0.875rem 1.25rem", margin: "1rem 0" }}>
@@ -1189,32 +1552,125 @@ export function ModelQCPage({
                     <ExternalLink size={16} />
                     <span>Open in CVAT (Frame #{selectedSample.frame_number ?? (selectedSample.id - 1)})</span>
                   </a>
+                  <button
+                    type="button"
+                    className="secondary"
+                    style={{ padding: "0.45rem 0.85rem", fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+                    disabled={busy || auditingFrameId === selectedSample.id}
+                    onClick={() => handleAuditSingleFrame(selectedSample.id)}
+                    title="Chạy lại phát hiện và đối soát riêng frame này theo yêu cầu"
+                  >
+                    <RefreshCw size={14} className={auditingFrameId === selectedSample.id ? "spin" : ""} />
+                    <span>Kiểm tra lại Frame</span>
+                  </button>
                 </div>
 
-                {/* Layer Toggles */}
-                <div className="qc-layer-toggles">
-                  <span className="toggle-label">Hiển thị lớp:</span>
+                {/* Layer Toggles & Smart Filters */}
+                <div className="qc-layer-toggles" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+                  <span className="toggle-label" style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--muted)" }}>Lớp:</span>
                   <button
                     className={`toggle-btn ${showGT ? "active gt" : ""}`}
                     onClick={() => setShowGT(!showGT)}
                     title="Bật/Tắt nhãn người gán (Ground Truth)"
                   >
-                    <span className="color-dot gt" /> Nhãn người
+                    <span className="color-dot gt" /> Nhãn người ({selectedSample.annotations?.length || 0})
                   </button>
                   <button
                     className={`toggle-btn ${showPred ? "active pred" : ""}`}
                     onClick={() => setShowPred(!showPred)}
                     title="Bật/Tắt dự đoán của Pretrained Model"
                   >
-                    <span className="color-dot pred" /> Model dự đoán
+                    <span className="color-dot pred" /> Model ({displayedPredictions.length})
                   </button>
                   <button
                     className={`toggle-btn ${showIssues ? "active issue" : ""}`}
                     onClick={() => setShowIssues(!showIssues)}
-                    title="Bật/Tắt vùng nghi vấn lỗi"
+                    title="Bật/Tắt vùng nghi vấn lỗi QC"
                   >
-                    <span className="color-dot issue" /> Vùng nghi vấn
+                    <span className="color-dot issue" /> Vùng nghi vấn ({selectedSample.qc_issues?.length || 0})
                   </button>
+
+                  {/* Model Source Filter Dropdown */}
+                  {showPred && sampleModels.length > 0 && (
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", marginLeft: "0.25rem" }}>
+                      <Layers size={13} style={{ color: "#c084fc" }} />
+                      <select
+                        value={selectedPredModelFilter === "auto" ? activeModel : selectedPredModelFilter}
+                        onChange={(e) => setSelectedPredModelFilter(e.target.value)}
+                        className="qc-model-select"
+                        style={{
+                          padding: "0.3rem 0.6rem",
+                          fontSize: "0.8rem",
+                          borderRadius: "6px",
+                          background: activeModel.startsWith("ensemble_") ? "rgba(168, 85, 247, 0.18)" : "rgba(255, 255, 255, 0.06)",
+                          border: `1px solid ${activeModel.startsWith("ensemble_") ? "rgba(168, 85, 247, 0.5)" : "rgba(255, 255, 255, 0.18)"}`,
+                          color: activeModel.startsWith("ensemble_") ? "#d8b4fe" : "var(--text)",
+                          fontWeight: 600,
+                        }}
+                        title="Lọc nguồn model hiển thị trên ảnh (tránh chồng lấn nhiều model)"
+                      >
+                        {sampleModels.some((m) => m.startsWith("ensemble_")) && (
+                          <option value={sampleModels.find((m) => m.startsWith("ensemble_"))}>
+                            ⭐ Chỉ hiện Ensemble WBF (Đồng thuận)
+                          </option>
+                        )}
+                        {sampleModels
+                          .filter((m) => !m.startsWith("ensemble_"))
+                          .map((m) => (
+                            <option key={m} value={m}>
+                              Model: {m}
+                            </option>
+                          ))}
+                        <option value="all">Tất cả mô hình ({selectedSample.predictions?.length || 0} boxes - Debug)</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Label Density Mode Toggle */}
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem", marginLeft: "0.25rem" }}>
+                    <button
+                      type="button"
+                      className={`toggle-btn ${labelDensityMode === "minimal" ? "active" : ""}`}
+                      style={{
+                        padding: "0.28rem 0.65rem",
+                        fontSize: "0.78rem",
+                        background: labelDensityMode === "minimal" ? "rgba(56, 189, 248, 0.15)" : "transparent",
+                        borderColor: labelDensityMode === "minimal" ? "rgba(56, 189, 248, 0.45)" : "rgba(255, 255, 255, 0.15)",
+                        color: labelDensityMode === "minimal" ? "#38bdf8" : "var(--muted)",
+                        fontWeight: 600,
+                      }}
+                      onClick={() => setLabelDensityMode(labelDensityMode === "minimal" ? "verbose" : "minimal")}
+                      title={labelDensityMode === "minimal" ? "Đang bật chế độ Gọn gàng (Chỉ hiện chữ khi rê chuột) - Bấm để hiện tất cả chữ" : "Đang hiện tất cả chữ - Bấm để bật chế độ Gọn gàng"}
+                    >
+                      <Eye size={12} />
+                      <span>{labelDensityMode === "minimal" ? "Nhãn: Gọn (Rê chuột)" : "Nhãn: Hiện tất cả"}</span>
+                    </button>
+                  </div>
+
+                  {/* Min Confidence Threshold Selector */}
+                  {showPred && (
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", marginLeft: "0.25rem" }}>
+                      <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>Min Conf:</span>
+                      <select
+                        value={String(minPredConf)}
+                        onChange={(e) => setMinPredConf(parseFloat(e.target.value))}
+                        style={{
+                          padding: "0.25rem 0.5rem",
+                          fontSize: "0.78rem",
+                          borderRadius: "4px",
+                          background: "rgba(0, 0, 0, 0.4)",
+                          border: "1px solid rgba(255, 255, 255, 0.15)",
+                          color: "var(--text)",
+                        }}
+                        title="Lọc bỏ các dự đoán model có độ tin cậy thấp"
+                      >
+                        <option value="0.25">25% (Rộng)</option>
+                        <option value="0.35">35% (Chuẩn)</option>
+                        <option value="0.50">50% (Cao)</option>
+                        <option value="0.65">65% (Rất cao)</option>
+                      </select>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1313,37 +1769,102 @@ export function ModelQCPage({
                         selectedSample.annotations?.map((ann) => {
                           const g = ann.geometry;
                           if (!g || ann.shape_type !== "BBOX_2D") return null;
+                          const isHovered = hoveredAnnId === ann.id;
+                          const isDimmed = (hoveredAnnId !== null && !isHovered) || (focusedIssueId !== null);
+                          const showLabel = labelDensityMode === "verbose" || isHovered;
                           return (
-                            <g key={`gt-${ann.id}`} className="svg-box gt-box">
+                            <g
+                              key={`gt-${ann.id}`}
+                              className={`svg-box gt-box interactive ${isHovered ? "is-hovered" : ""} ${isDimmed ? "is-dimmed" : ""}`}
+                              onMouseEnter={() => setHoveredAnnId(ann.id)}
+                              onMouseLeave={() => setHoveredAnnId(null)}
+                            >
+                              <title>{`Nhãn người: ${ann.label}`}</title>
                               <rect
                                 x={g.x1}
                                 y={g.y1}
                                 width={g.x2 - g.x1}
                                 height={g.y2 - g.y1}
                               />
-                              <text x={g.x1 + 4} y={Math.max(16, g.y1 - 4)}>
-                                Người: {ann.label}
-                              </text>
+                              {showLabel && (
+                                <g className="gt-label-chip">
+                                  <rect
+                                    x={g.x1}
+                                    y={Math.max(2, g.y1 - 18)}
+                                    width={Math.max(68, (ann.label.length + 8) * 7.2)}
+                                    height={18}
+                                    rx={3}
+                                    fill="rgba(15, 23, 42, 0.9)"
+                                    stroke="#2dd4bf"
+                                    strokeWidth={1}
+                                  />
+                                  <text
+                                    x={g.x1 + 5}
+                                    y={Math.max(14, g.y1 - 5)}
+                                    fill="#2dd4bf"
+                                    fontSize={11}
+                                    fontWeight={700}
+                                  >
+                                    Người: {ann.label}
+                                  </text>
+                                </g>
+                              )}
                             </g>
                           );
                         })}
 
-                      {/* 2. Model Predictions (Dashed Orange/Amber) */}
+                      {/* 2. Model Predictions (Filtered & Density Controlled) */}
                       {showPred &&
-                        selectedSample.predictions?.map((pred) => {
+                        displayedPredictions.map((pred) => {
                           const g = pred.geometry;
                           if (!g) return null;
+                          const isEnsemble = pred.source_model?.startsWith("ensemble_") || false;
+                          const isHovered = hoveredPredId === pred.id;
+                          const isDimmed = (hoveredPredId !== null && !isHovered) || (focusedIssueId !== null);
+                          const showLabel = labelDensityMode === "verbose" || isHovered;
+                          const labelText = `${isEnsemble ? "⭐ " : ""}${pred.label} (${(pred.confidence * 100).toFixed(0)}%) · ${pred.source_model || "model"}`;
+                          const badgeW = Math.max(80, labelText.length * 6.8 + 12);
+                          const badgeH = 18;
+                          const badgeY = Math.min((selectedSample.height || 720) - badgeH - 2, g.y2 + 4);
+                          const badgeX = Math.max(2, Math.min(g.x1, (selectedSample.width || 1280) - badgeW - 2));
+
                           return (
-                            <g key={`pred-${pred.id}`} className="svg-box pred-box">
+                            <g
+                              key={`pred-${pred.id}`}
+                              className={`svg-box pred-box interactive ${isEnsemble ? "ensemble" : ""} ${isHovered ? "is-hovered" : ""} ${isDimmed ? "is-dimmed" : ""}`}
+                              onMouseEnter={() => setHoveredPredId(pred.id)}
+                              onMouseLeave={() => setHoveredPredId(null)}
+                            >
+                              <title>{`Model (${pred.source_model || "unknown"}): ${pred.label} (${(pred.confidence * 100).toFixed(0)}%)`}</title>
                               <rect
                                 x={g.x1}
                                 y={g.y1}
                                 width={g.x2 - g.x1}
                                 height={g.y2 - g.y1}
                               />
-                              <text x={g.x1 + 4} y={Math.min((selectedSample.height || 720) - 6, g.y2 + 14)}>
-                                Model: {pred.label} ({(pred.confidence * 100).toFixed(0)}%)
-                              </text>
+                              {showLabel && (
+                                <g className="pred-label-chip">
+                                  <rect
+                                    x={badgeX}
+                                    y={badgeY}
+                                    width={badgeW}
+                                    height={badgeH}
+                                    rx={3}
+                                    fill="rgba(15, 23, 42, 0.92)"
+                                    stroke={isEnsemble ? "#c084fc" : "#fb923c"}
+                                    strokeWidth={1}
+                                  />
+                                  <text
+                                    x={badgeX + 6}
+                                    y={badgeY + 13}
+                                    fill={isEnsemble ? "#e9d5ff" : "#fed7aa"}
+                                    fontSize={11}
+                                    fontWeight={700}
+                                  >
+                                    {labelText}
+                                  </text>
+                                </g>
+                              )}
                             </g>
                           );
                         })}
@@ -1353,10 +1874,12 @@ export function ModelQCPage({
                         (() => {
                           const issues = selectedSample.qc_issues || [];
                           const indexed = issues.map((issue, idx) => ({ issue, idx }));
-                          // Render focused issue last so it stays on top in SVG
+                          // Render focused or hovered issue last so it stays on top in SVG
                           const sorted = [...indexed].sort((a, b) => {
-                            if (a.issue.id === focusedIssueId) return 1;
-                            if (b.issue.id === focusedIssueId) return -1;
+                            const aActive = a.issue.id === focusedIssueId || a.issue.id === hoveredIssueId;
+                            const bActive = b.issue.id === focusedIssueId || b.issue.id === hoveredIssueId;
+                            if (aActive && !bActive) return 1;
+                            if (!aActive && bActive) return -1;
                             return 0;
                           });
 
@@ -1364,8 +1887,8 @@ export function ModelQCPage({
                             const g = issue.location;
                             if (!g) return null;
                             const isResolved = issue.status !== "PENDING";
-                            const isFocused = focusedIssueId === issue.id;
-                            const isDimmed = focusedIssueId !== null && !isFocused;
+                            const isFocused = focusedIssueId === issue.id || hoveredIssueId === issue.id;
+                            const isDimmed = (focusedIssueId !== null || hoveredIssueId !== null) && !isFocused;
                             const isWrongClass = issue.issue_type === "WRONG_CLASS";
                             const boxW = Math.max(1, g.x2 - g.x1);
                             const boxH = Math.max(1, g.y2 - g.y1);
@@ -1380,14 +1903,23 @@ export function ModelQCPage({
                             const badgeY = Math.max(badgeH + 4, g.y1 - 6);
                             const badgeX = Math.max(2, Math.min(g.x1, (selectedSample.width || 1280) - badgeW - 4));
 
+                            // In minimal mode: wide label banner ONLY shows when hovered or focused
+                            const showDetailedBanner = labelDensityMode === "verbose" || isFocused;
+
                             return (
                               <g
                                 key={`issue-${issue.id}`}
                                 className={`svg-box issue-highlight interactive ${isWrongClass ? "wrong-class" : "missing-object"
                                   } ${isResolved ? "resolved" : ""} ${isFocused ? "is-focused" : ""
                                   } ${isDimmed ? "is-dimmed" : ""}`}
-                                onMouseEnter={() => setFocusedIssueId(issue.id)}
-                                onMouseLeave={() => setFocusedIssueId(null)}
+                                onMouseEnter={() => {
+                                  setFocusedIssueId(issue.id);
+                                  setHoveredIssueId(issue.id);
+                                }}
+                                onMouseLeave={() => {
+                                  setFocusedIssueId(null);
+                                  setHoveredIssueId(null);
+                                }}
                                 onClick={() => scrollToCard(issue.id)}
                               >
                                 <title>{`Nghi vấn #${idx + 1}: ${labelText}\nBấm để cuộn xuống thẻ chi tiết`}</title>
@@ -1411,27 +1943,29 @@ export function ModelQCPage({
                                   </g>
                                 )}
 
-                                {/* Pill Badge Background */}
-                                <rect
-                                  className="issue-badge-bg"
-                                  x={badgeX}
-                                  y={badgeY - badgeH + 4}
-                                  width={badgeW}
-                                  height={badgeH}
-                                  rx={4}
-                                  ry={4}
-                                />
+                                {/* Pill Badge Background & Text (conditional in minimal mode to prevent clutter) */}
+                                {showDetailedBanner && (
+                                  <>
+                                    <rect
+                                      className="issue-badge-bg"
+                                      x={badgeX}
+                                      y={badgeY - badgeH + 4}
+                                      width={badgeW}
+                                      height={badgeH}
+                                      rx={4}
+                                      ry={4}
+                                    />
+                                    <text
+                                      className="issue-badge-text"
+                                      x={badgeX + 8}
+                                      y={badgeY}
+                                    >
+                                      {labelText}
+                                    </text>
+                                  </>
+                                )}
 
-                                {/* Pill Badge Text */}
-                                <text
-                                  className="issue-badge-text"
-                                  x={badgeX + 8}
-                                  y={badgeY}
-                                >
-                                  {labelText}
-                                </text>
-
-                                {/* Corner Number Pin Marker */}
+                                {/* Corner Number Pin Marker (ALWAYS visible for clean and concise referencing) */}
                                 <circle
                                   className="issue-pin-circle"
                                   cx={g.x1}
@@ -1459,13 +1993,16 @@ export function ModelQCPage({
                     <i className="legend-dot gt" /> Nhãn người gán (Ground Truth)
                   </span>
                   <span>
-                    <i className="legend-dot pred" /> Model phát hiện (Pretrained Detector)
+                    <i className="legend-dot pred" /> Model ({activeModel.startsWith("ensemble_") ? "⭐ Ensemble WBF" : activeModel})
                   </span>
                   <span>
                     <i className="legend-dot wrong-class" /> [⇄] Sai Class (Tím)
                   </span>
                   <span>
                     <i className="legend-dot missing" /> [!] Sót vật thể (Đỏ)
+                  </span>
+                  <span style={{ marginLeft: "auto", fontSize: "0.78rem", color: "var(--muted)" }}>
+                    💡 Rê chuột vào box để xem chi tiết nhãn · Bấm pin để cuộn xuống xử lý
                   </span>
                 </div>
               </div>
@@ -1482,6 +2019,72 @@ export function ModelQCPage({
                     Mỗi nghi vấn được đánh số thứ tự (#1, #2, ...) tương ứng chính xác với box trên ảnh. Đối chiếu nhãn và bấm 1-Click để xử lý.
                   </p>
                 </div>
+
+                {/* Multi-Model Consensus Auto-Resolution Banner (drastically reduces human clicks) */}
+                {(() => {
+                  const pendingIssues = selectedSample.qc_issues?.filter((i) => i.status === "PENDING") || [];
+                  const tier1Issues = pendingIssues.filter(
+                    (i) => i.evidence?.consensus_tier === 1 || (i.evidence?.num_models_agreed && i.evidence.num_models_agreed >= 2)
+                  );
+                  if (tier1Issues.length === 0) return null;
+
+                  return (
+                    <div
+                      className="qc-consensus-resolve-banner"
+                      style={{
+                        background: "linear-gradient(135deg, rgba(168, 85, 247, 0.16) 0%, rgba(99, 102, 241, 0.16) 100%)",
+                        border: "1px solid rgba(168, 85, 247, 0.45)",
+                        borderRadius: "10px",
+                        padding: "0.85rem 1.25rem",
+                        marginTop: "0.75rem",
+                        marginBottom: "1rem",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        flexWrap: "wrap",
+                        gap: "0.85rem",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                        <div style={{ background: "rgba(168, 85, 247, 0.25)", padding: "0.5rem", borderRadius: "8px", color: "#c084fc", display: "flex", alignItems: "center" }}>
+                          <Sparkles size={20} />
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, color: "#f3e8ff", fontSize: "0.95rem" }}>
+                            Tự động hoá Multi-Model: Có {tier1Issues.length} / {pendingIssues.length} nghi vấn đạt đồng thuận cao (Tier 1)
+                          </div>
+                          <div style={{ fontSize: "0.82rem", color: "#d8b4fe", marginTop: "2px" }}>
+                            Các mô hình độc lập (YOLOv8, Faster R-CNN, RT-DETR) cùng phát hiện nhất quán. Áp dụng ngay với 1-Click để bỏ qua thao tác thủ công từng mục!
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="primary"
+                        style={{
+                          background: "linear-gradient(135deg, #a855f7 0%, #6366f1 100%)",
+                          border: "none",
+                          color: "#ffffff",
+                          padding: "0.5rem 1.15rem",
+                          fontWeight: 700,
+                          fontSize: "0.85rem",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "0.45rem",
+                          borderRadius: "6px",
+                          boxShadow: "0 2px 10px rgba(168, 85, 247, 0.35)",
+                          cursor: "pointer",
+                        }}
+                        disabled={busy}
+                        onClick={() => handleBatchResolveConsensus(1)}
+                        title="Tự động chấp nhận toàn bộ các bất đồng có đồng thuận cao giữa các model trên frame này"
+                      >
+                        <Zap size={15} />
+                        <span>1-Click: Áp dụng toàn bộ đồng thuận ({tier1Issues.length})</span>
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 {/* Quick Navigation Strip for dense issue frames */}
                 {selectedSample.qc_issues && selectedSample.qc_issues.length > 1 && (
@@ -1562,6 +2165,24 @@ export function ModelQCPage({
                             </div>
 
                             <div className="qc-issue-badges">
+                              {issue.evidence?.consensus_tier === 1 && (
+                                <span
+                                  className="badge"
+                                  style={{ background: "rgba(168, 85, 247, 0.22)", color: "#d8b4fe", border: "1px solid rgba(168, 85, 247, 0.55)", fontWeight: 700 }}
+                                  title={issue.evidence.tier_reason || "Đồng thuận cao giữa các kiến trúc mô hình (WBF)"}
+                                >
+                                  ⭐ Đồng thuận {issue.evidence.num_models_agreed || 2}/3 Model
+                                </span>
+                              )}
+                              {issue.evidence?.consensus_tier === 2 && (
+                                <span
+                                  className="badge"
+                                  style={{ background: "rgba(245, 158, 11, 0.22)", color: "#fcd34d", border: "1px solid rgba(245, 158, 11, 0.55)", fontWeight: 700 }}
+                                  title={issue.evidence.tier_reason || "Bất đồng class giữa các mô hình"}
+                                >
+                                  ⚠️ Bất đồng Class ({issue.evidence.num_models_agreed || 2} models)
+                                </span>
+                              )}
                               <span className="badge badge-accent">
                                 QC Score: {issue.qc_score.toFixed(3)}
                               </span>
@@ -2164,16 +2785,47 @@ export function ModelQCPage({
             >
               <div className="form-group">
                 <label>
+                  <span>Nguồn dữ liệu đẩy sang CVAT:</span>
+                  <select
+                    value={cvatPushSource}
+                    onChange={(e) => setCvatPushSource(e.target.value as "merged" | "predictions" | "annotations")}
+                  >
+                    <option value="merged">
+                      🌟 Gộp thông minh (Khuyên dùng) — Giữ 100% nhãn người gán + Bổ sung vật thể AI tìm thấy (MISSING_OBJECT)
+                    </option>
+                    <option value="predictions">
+                      🤖 Dự đoán của Model AI (Pre-labeling) — Đẩy toàn bộ vật thể AI phát hiện lên CVAT làm nhãn gợi ý
+                    </option>
+                    <option value="annotations">
+                      👤 Nhãn người gán gốc (Ground Truth) — Chỉ đẩy các box người gán đã vẽ trong AnnoPilot
+                    </option>
+                  </select>
+                  <small className="muted">
+                    {cvatPushSource === "merged" && "Tự động gộp nhãn người gán và các vật thể AI phát hiện bị sót để annotator trên CVAT không phải vẽ lại từ đầu."}
+                    {cvatPushSource === "predictions" && "Rất phù hợp cho quy trình Pre-labeling: đưa nhãn AI vào CVAT để người dùng chỉnh sửa nhanh."}
+                    {cvatPushSource === "annotations" && "Chỉ xuất các bounding box người gán hiện có trong cơ sở dữ liệu AnnoPilot sang CVAT."}
+                  </small>
+                </label>
+              </div>
+
+              <div className="form-group">
+                <label>
                   <span>Chế độ đẩy nhãn:</span>
                   <select
                     value={cvatPushMode}
                     onChange={(e) => setCvatPushMode(e.target.value as "replace" | "create")}
                   >
-                    <option value="replace">Ghi đè nhãn (Replace shapes - Giữ nguyên video tracks nếu có)</option>
-                    <option value="create">Bổ sung nhãn mới (Append / Create new shapes)</option>
+                    <option value="create">
+                      🛡️ Bổ sung thêm (Append / Create — Mặc định an toàn, không làm mất nhãn trên CVAT)
+                    </option>
+                    <option value="replace">
+                      ⚠️ Ghi đè toàn bộ (Replace — Xóa sạch các shape đang có trên CVAT Job và thay bằng AnnoPilot)
+                    </option>
                   </select>
                   <small className="muted">
-                    Khuyến nghị <strong>Ghi đè nhãn (Replace shapes)</strong> để đồng bộ và làm sạch tuyệt đối với Ground Truth mới sau khi QC.
+                    {cvatPushMode === "create"
+                      ? "Chế độ này an toàn tuyệt đối: nhãn vẽ trực tiếp trên CVAT sẽ KHÔNG bị mất."
+                      : "Cảnh báo: Nếu annotator vừa vẽ trực tiếp trên CVAT mà chưa Đồng bộ về AnnoPilot, các nhãn đó trên CVAT sẽ bị thay thế."}
                   </small>
                 </label>
               </div>
@@ -2212,6 +2864,364 @@ export function ModelQCPage({
           </section>
         </div>
       )}
+
+      {/* Multi-Model Ensemble (WBF) Modal */}
+      {showEnsembleModal && (
+        <div className="modal-backdrop" onClick={() => setShowEnsembleModal(false)}>
+          <section
+            className="modal-card card"
+            style={{ maxWidth: "780px", width: "95%" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "rgba(168, 85, 247, 0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Layers size={22} style={{ color: "#c084fc" }} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700 }}>
+                    Multi-Model Ensemble: Pre-labeling (WBF)
+                  </h3>
+                  <p className="muted" style={{ margin: 0, fontSize: "0.85rem" }}>
+                    Kết hợp dự đoán đa mô hình bằng Weighted Box Fusion & Phân tầng đồng thuận Tri-Tier
+                  </p>
+                </div>
+              </div>
+              <button className="icon-button" onClick={() => setShowEnsembleModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Architecture Explanation Banner */}
+            <div style={{ background: "rgba(168, 85, 247, 0.08)", border: "1px solid rgba(168, 85, 247, 0.25)", borderRadius: "10px", padding: "1rem", margin: "1rem 0" }}>
+              <div style={{ fontWeight: 600, color: "#d8b4fe", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <Sparkles size={16} /> Cơ chế đồng thuận 3 cấp độ (Tri-Tier Consensus Architecture)
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", fontSize: "0.82rem" }}>
+                <div style={{ background: "rgba(34, 197, 94, 0.1)", border: "1px solid rgba(34, 197, 94, 0.3)", borderRadius: "8px", padding: "0.6rem" }}>
+                  <div style={{ fontWeight: 700, color: "#86efac", marginBottom: "4px" }}>🎯 Tier 1: Đồng thuận cao</div>
+                  <div style={{ color: "#dcfce7", lineHeight: "1.3" }}>Các model cùng dự đoán 1 nhãn với IoU & conf cao → <strong>Tự động chấp nhận pre-label</strong>.</div>
+                </div>
+                <div style={{ background: "rgba(245, 158, 11, 0.1)", border: "1px solid rgba(245, 158, 11, 0.3)", borderRadius: "8px", padding: "0.6rem" }}>
+                  <div style={{ fontWeight: 700, color: "#fcd34d", marginBottom: "4px" }}>⚠️ Tier 2: Bất đồng nhãn</div>
+                  <div style={{ color: "#fef3c7", lineHeight: "1.3" }}>Model trùng vị trí nhưng lệch class (e.g. car vs truck) → <strong>Gắn cờ 1-Click review</strong>.</div>
+                </div>
+                <div style={{ background: "rgba(56, 189, 248, 0.1)", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "8px", padding: "0.6rem" }}>
+                  <div style={{ fontWeight: 700, color: "#7dd3fc", marginBottom: "4px" }}>🔍 Tier 3: Lệch model</div>
+                  <div style={{ color: "#e0f2fe", lineHeight: "1.3" }}>Chỉ 1 model phát hiện vật thể → <strong>Đẩy vào hàng đợi QC kiểm tra</strong>.</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Option B Triad Preset Card */}
+            <div
+              style={{
+                background: "linear-gradient(135deg, rgba(168, 85, 247, 0.12), rgba(59, 130, 246, 0.12))",
+                border: "1px solid rgba(168, 85, 247, 0.35)",
+                borderRadius: "10px",
+                padding: "1rem",
+                marginBottom: "1.25rem",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <Sparkles size={18} style={{ color: "#c084fc" }} />
+                  <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "#f3e8ff" }}>
+                    Phương án B: Bộ 3 Mô hình Đa Kiến Trúc (Triad Ensemble)
+                  </span>
+                  <span className="badge" style={{ background: "#7c3aed", color: "#fff", fontSize: "0.72rem", padding: "2px 8px" }}>
+                    Khuyên dùng
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <select
+                    value={triadLimit === null ? "all" : String(triadLimit)}
+                    onChange={(e) => setTriadLimit(e.target.value === "all" ? null : parseInt(e.target.value, 10))}
+                    style={{ padding: "0.3rem 0.6rem", fontSize: "0.8rem", background: "rgba(0,0,0,0.4)", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.2)" }}
+                    disabled={runningTriad}
+                  >
+                    <option value="all">Toàn bộ Dataset</option>
+                    <option value="10">Thử nghiệm 10 frames</option>
+                    <option value="30">Thử nghiệm 30 frames</option>
+                  </select>
+                  <button
+                    type="button"
+                    className="primary"
+                    style={{ padding: "0.35rem 0.85rem", fontSize: "0.82rem", background: "#7c3aed", display: "flex", alignItems: "center", gap: "0.4rem" }}
+                    onClick={() => handleRunTriadEnsemble()}
+                    disabled={busy || runningTriad}
+                  >
+                    {runningTriad ? <LoaderCircle size={14} className="spin" /> : <Play size={14} />}
+                    <span>{runningTriad ? "Đang suy luận..." : "⚡ Chạy Inference & WBF Phương Án B"}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.6rem", fontSize: "0.8rem" }}>
+                <div style={{ background: "rgba(0, 0, 0, 0.25)", borderRadius: "6px", padding: "0.55rem 0.75rem", border: "1px solid rgba(168, 85, 247, 0.2)" }}>
+                  <div style={{ fontWeight: 600, color: "#e9d5ff", display: "flex", alignItems: "center", gap: "4px" }}>
+                    ⚡ M1: YOLOv8n
+                  </div>
+                  <div style={{ color: "var(--muted)", fontSize: "0.75rem", marginTop: "2px" }}>CNN 1-Stage · TAL Assigner · Trọng số 1.0</div>
+                </div>
+                <div style={{ background: "rgba(0, 0, 0, 0.25)", borderRadius: "6px", padding: "0.55rem 0.75rem", border: "1px solid rgba(59, 130, 246, 0.2)" }}>
+                  <div style={{ fontWeight: 600, color: "#93c5fd", display: "flex", alignItems: "center", gap: "4px" }}>
+                    🎯 M2: Faster R-CNN
+                  </div>
+                  <div style={{ color: "var(--muted)", fontSize: "0.75rem", marginTop: "2px" }}>CNN 2-Stage · RPN + RoIAlign · Trọng số 1.0</div>
+                </div>
+                <div style={{ background: "rgba(0, 0, 0, 0.25)", borderRadius: "6px", padding: "0.55rem 0.75rem", border: "1px solid rgba(245, 158, 11, 0.2)" }}>
+                  <div style={{ fontWeight: 600, color: "#fcd34d", display: "flex", alignItems: "center", gap: "4px" }}>
+                    👁️ M3: RT-DETR-l
+                  </div>
+                  <div style={{ color: "var(--muted)", fontSize: "0.75rem", marginTop: "2px" }}>Transformer · Global Attention · Trọng số 1.2</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Model Selection & Weights */}
+            <div style={{ marginBottom: "1.25rem" }}>
+              <div style={{ fontWeight: 600, fontSize: "0.95rem", marginBottom: "0.5rem" }}>
+                1. Chọn mô hình tham gia Ensemble & Thiết lập trọng số (Model Weights):
+              </div>
+              {availableModelsData && availableModelsData.models.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  {availableModelsData.models
+                    .filter((m) => !m.startsWith("ensemble_"))
+                    .map((modelName) => {
+                      const isSelected = selectedEnsembleModels.includes(modelName);
+                      const count = availableModelsData.counts[modelName] || 0;
+                      const weight = modelWeights[modelName] ?? 1.0;
+                      return (
+                        <div
+                          key={modelName}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "0.6rem 0.9rem",
+                            borderRadius: "8px",
+                            background: isSelected ? "rgba(168, 85, 247, 0.12)" : "rgba(255, 255, 255, 0.03)",
+                            border: `1px solid ${isSelected ? "rgba(168, 85, 247, 0.4)" : "rgba(255, 255, 255, 0.1)"}`,
+                          }}
+                        >
+                          <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", margin: 0 }}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedEnsembleModels([...selectedEnsembleModels, modelName]);
+                                } else {
+                                  setSelectedEnsembleModels(selectedEnsembleModels.filter((m) => m !== modelName));
+                                }
+                              }}
+                            />
+                            <span style={{ fontWeight: 600 }}>{modelName}</span>
+                            {modelName.toLowerCase().includes("yolo") && (
+                              <span className="badge" style={{ background: "rgba(168, 85, 247, 0.2)", color: "#d8b4fe", fontSize: "0.7rem", border: "1px solid rgba(168, 85, 247, 0.4)" }}>
+                                CNN 1-Stage
+                              </span>
+                            )}
+                            {(modelName.toLowerCase().includes("faster") || modelName.toLowerCase().includes("rcnn")) && (
+                              <span className="badge" style={{ background: "rgba(59, 130, 246, 0.2)", color: "#93c5fd", fontSize: "0.7rem", border: "1px solid rgba(59, 130, 246, 0.4)" }}>
+                                CNN 2-Stage
+                              </span>
+                            )}
+                            {(modelName.toLowerCase().includes("detr") || modelName.toLowerCase().includes("transformer")) && (
+                              <span className="badge" style={{ background: "rgba(245, 158, 11, 0.2)", color: "#fcd34d", fontSize: "0.7rem", border: "1px solid rgba(245, 158, 11, 0.4)" }}>
+                                Vision Transformer
+                              </span>
+                            )}
+                            <span className="badge" style={{ background: "rgba(255, 255, 255, 0.1)", fontSize: "0.75rem" }}>
+                              {count.toLocaleString()} predictions
+                            </span>
+                          </label>
+
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                            <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Trọng số:</span>
+                            <input
+                              type="number"
+                              min="0.1"
+                              max="5.0"
+                              step="0.1"
+                              value={weight}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 1.0;
+                                setModelWeights({ ...modelWeights, [modelName]: val });
+                              }}
+                              style={{ width: "70px", padding: "0.25rem 0.5rem", fontSize: "0.85rem", textAlign: "center" }}
+                              disabled={!isSelected}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              ) : (
+                <div className="alert warning" style={{ fontSize: "0.85rem", padding: "0.75rem" }}>
+                  Chưa có nguồn dự đoán nào trong dataset. Hãy tải lên file predictions bên dưới!
+                </div>
+              )}
+            </div>
+
+            {/* WBF Hyperparameters */}
+            <div style={{ marginBottom: "1.25rem" }}>
+              <div style={{ fontWeight: 600, fontSize: "0.95rem", marginBottom: "0.5rem" }}>
+                2. Tham số thuật toán Weighted Box Fusion (WBF):
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: "0.8rem" }}>
+                    <span>IoU Clustered Threshold:</span>
+                    <input
+                      type="number"
+                      min="0.1"
+                      max="0.95"
+                      step="0.05"
+                      value={ensembleIouThresh}
+                      onChange={(e) => setEnsembleIouThresh(parseFloat(e.target.value) || 0.55)}
+                    />
+                    <small className="muted">Ngưỡng IoU coi 2 box là 1 vật thể (Mặc định 0.55)</small>
+                  </label>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: "0.8rem" }}>
+                    <span>Min Fused Confidence:</span>
+                    <input
+                      type="number"
+                      min="0.05"
+                      max="1.0"
+                      step="0.05"
+                      value={ensembleConfThresh}
+                      onChange={(e) => setEnsembleConfThresh(parseFloat(e.target.value) || 0.30)}
+                    />
+                    <small className="muted">Độ tin cậy tối thiểu để giữ box sau WBF (Mặc định 0.30)</small>
+                  </label>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{ fontSize: "0.8rem" }}>
+                    <span>Tier 1 Consensus Conf:</span>
+                    <input
+                      type="number"
+                      min="0.5"
+                      max="1.0"
+                      step="0.05"
+                      value={ensembleHighConsensusConf}
+                      onChange={(e) => setEnsembleHighConsensusConf(parseFloat(e.target.value) || 0.85)}
+                    />
+                    <small className="muted">Độ tin cậy để xếp vào Tier 1 Auto-accept (Mặc định 0.85)</small>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Upload Additional Model File */}
+            <details style={{ marginBottom: "1.25rem", background: "rgba(255, 255, 255, 0.02)", border: "1px solid rgba(255, 255, 255, 0.08)", borderRadius: "8px", padding: "0.75rem" }}>
+              <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: "0.9rem", color: "#c084fc" }}>
+                + Nạp thêm dự đoán từ mô hình khác (RT-DETR, Faster R-CNN, v.v.)
+              </summary>
+              <form onSubmit={handleUploadAdditionalModel} style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label style={{ fontSize: "0.8rem" }}>
+                      <span>Tên model (Model Identifier):</span>
+                      <input
+                        type="text"
+                        placeholder="e.g. rt-detr-l hoặc yolov9c"
+                        value={newModelName}
+                        onChange={(e) => setNewModelName(e.target.value)}
+                        required
+                      />
+                    </label>
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label style={{ fontSize: "0.8rem" }}>
+                      <span>Chọn file JSON dự đoán:</span>
+                      <input
+                        type="file"
+                        accept=".json"
+                        onChange={(e) => setNewModelFile(e.target.files?.[0] || null)}
+                        required
+                      />
+                    </label>
+                  </div>
+                </div>
+                <button type="submit" className="secondary" style={{ alignSelf: "flex-end" }} disabled={busy || !newModelFile}>
+                  <Upload size={14} /> Nạp & Hợp nhất vào Ensemble
+                </button>
+              </form>
+            </details>
+
+            {/* Last Execution Results */}
+            {ensembleResult && (
+              <div style={{ background: "rgba(168, 85, 247, 0.1)", border: "1px solid rgba(168, 85, 247, 0.3)", borderRadius: "8px", padding: "1rem", marginBottom: "1.25rem" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
+                  <span style={{ fontWeight: 700, color: "#d8b4fe" }}>
+                    Kết quả hợp nhất gần nhất ({ensembleResult.total_fused_predictions?.toLocaleString()} boxes)
+                  </span>
+                  <button
+                    className="primary"
+                    style={{ padding: "0.35rem 0.75rem", fontSize: "0.8rem", background: "#7c3aed" }}
+                    onClick={() => {
+                      setShowEnsembleModal(false);
+                      setCvatPushSource("predictions");
+                      setShowCVATPushModal(true);
+                    }}
+                  >
+                    <Send size={14} /> Đẩy Pre-label sang CVAT
+                  </button>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", textAlign: "center" }}>
+                  <div style={{ background: "rgba(34, 197, 94, 0.15)", borderRadius: "8px", padding: "0.6rem" }}>
+                    <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#86efac" }}>
+                      {ensembleResult.tier_breakdown?.tier_1_high_consensus || 0}
+                    </div>
+                    <div style={{ fontSize: "0.75rem", color: "#dcfce7" }}>
+                      🎯 Tier 1 (Đồng thuận cao) ·{" "}
+                      {ensembleResult.total_fused_predictions
+                        ? Math.round(((ensembleResult.tier_breakdown?.tier_1_high_consensus || 0) / ensembleResult.total_fused_predictions) * 100)
+                        : 0}
+                      %
+                    </div>
+                  </div>
+                  <div style={{ background: "rgba(245, 158, 11, 0.15)", borderRadius: "8px", padding: "0.6rem" }}>
+                    <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#fcd34d" }}>
+                      {ensembleResult.tier_breakdown?.tier_2_class_disagreement || 0}
+                    </div>
+                    <div style={{ fontSize: "0.75rem", color: "#fef3c7" }}>⚠️ Tier 2 (Bất đồng nhãn)</div>
+                  </div>
+                  <div style={{ background: "rgba(56, 189, 248, 0.15)", borderRadius: "8px", padding: "0.6rem" }}>
+                    <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#7dd3fc" }}>
+                      {ensembleResult.tier_breakdown?.tier_3_model_divergence || 0}
+                    </div>
+                    <div style={{ fontSize: "0.75rem", color: "#e0f2fe" }}>🔍 Tier 3 (Chỉ 1 model)</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="modal-actions" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <button type="button" className="secondary" onClick={() => setShowEnsembleModal(false)}>
+                Đóng
+              </button>
+              <button
+                type="button"
+                className="primary"
+                style={{ background: "#9333ea", borderColor: "#a855f7" }}
+                disabled={busy || selectedEnsembleModels.length === 0}
+                onClick={handleRunEnsemble}
+              >
+                <Sparkles size={16} /> Chạy WBF Ensemble
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
+

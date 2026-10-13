@@ -1498,6 +1498,66 @@ pre {
   gap: 0.625rem;
 }
 
+/* QC More Actions Dropdown */
+.qc-dropdown-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.qc-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 250px;
+  background: #111827;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px);
+  padding: 0.5rem;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.qc-dropdown-section-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  font-weight: 700;
+  padding: 0.35rem 0.6rem 0.15rem 0.6rem;
+}
+
+.qc-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.83rem;
+  font-weight: 500;
+  color: #e2e8f0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.qc-dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.qc-dropdown-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0.25rem 0;
+}
+
 /* KPI Cards */
 .qc-kpi-grid {
   display: grid;
@@ -2093,19 +2153,58 @@ pre {
 }
 
 .pred-box rect {
-  fill: rgba(251, 146, 60, 0.15);
+  fill: rgba(251, 146, 60, 0.12);
   stroke: #fb923c;
-  stroke-width: 2;
+  stroke-width: 1.8;
   stroke-dasharray: 4, 3;
   vector-effect: non-scaling-stroke;
+  transition: all 0.15s ease;
+}
+.pred-box.ensemble rect {
+  fill: rgba(168, 85, 247, 0.12);
+  stroke: #c084fc;
+  stroke-width: 2.2;
+  stroke-dasharray: 5, 3;
 }
 .pred-box text {
   fill: #fb923c;
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 700;
   paint-order: stroke;
   stroke: #030814;
-  stroke-width: 3px;
+  stroke-width: 2px;
+}
+.pred-box.ensemble text {
+  fill: #e9d5ff;
+}
+.pred-box.interactive {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.pred-box.is-hovered rect {
+  stroke-width: 3px !important;
+  fill: rgba(251, 146, 60, 0.28) !important;
+  filter: drop-shadow(0 0 8px rgba(251, 146, 60, 0.75));
+}
+.pred-box.ensemble.is-hovered rect {
+  stroke-width: 3px !important;
+  fill: rgba(192, 132, 252, 0.3) !important;
+  filter: drop-shadow(0 0 10px rgba(192, 132, 252, 0.85));
+}
+.gt-box.interactive {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.gt-box.is-hovered rect {
+  stroke-width: 3px !important;
+  fill: rgba(45, 212, 191, 0.28) !important;
+  filter: drop-shadow(0 0 8px rgba(45, 212, 191, 0.75));
+}
+
+/* Dimmed background when focusing an element */
+.svg-box.is-dimmed {
+  opacity: 0.25 !important;
+  transition: opacity 0.18s ease;
 }
 
 /* SVG Issue Highlight & Interactive Linking */

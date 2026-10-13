@@ -237,26 +237,51 @@ Trên thanh Sidebar bên trái màn hình, nhấn vào mục có biểu tượng
 
 ---
 
-### Bước 3: Chạy Rà soát Đối soát (Audit Run)
-Tại thanh công cụ phía trên trang Model QC, bạn có các tính năng hỗ trợ đối soát:
+### Bước 3: Chạy Rà soát Đối soát (Audit Run) & Vận hành Tinh giản
+Thanh công cụ phía trên trang Model QC đã được thiết kế lại tinh gọn, phân cấp rõ ràng thành **4 hành động cốt lõi** và **Menu Công cụ nâng cao**:
 
-#### Lựa chọn A: Xem Sơ đồ Kiến trúc & Cấu hình CVAT
-* **Nút "Kiến trúc CVAT × QC":** Mở sơ đồ tương tác 3 tầng giải thích phân định trách nhiệm giữa CVAT (System of Record) và QC Dashboard (Decision Layer).
-* **Nút "Cấu hình CVAT":** Cho phép nhập địa chỉ CVAT Server (mặc định `http://localhost:8080`), Task ID và Job ID. Khi lưu, toàn bộ liên kết Deep-link trên hệ thống sẽ tự động cập nhật trỏ về đúng task/job trên CVAT.
+#### 1. Hành động cốt lõi 1: Chạy Hàng Đợi Streaming (Nút chính "Chạy Queue QC")
+* Nhấn nút màu xanh dương nổi bật **"Chạy Queue QC"**.
+* Hệ thống kích hoạt tiến trình nền chạy tuần tự từng frame (không làm đơ hay khóa máy chủ như chạy batch toàn bộ).
+* Thanh tiến trình thời gian thực (Live Progress Banner) hiển thị % tiến độ, tên frame, số cảnh báo phát hiện và các nút Tạm dừng / Tiếp tục.
 
-#### Lựa chọn B: Run Pretrained Detector (Mô hình YOLOv8 ONNX thực tế)
-* Nhấn nút màu xanh lá cây **"Run Pretrained Detector"**.
-* Hệ thống sẽ tự động gọi backend chạy file `backend/models/yolov8n.onnx` trên từng ảnh và lưu kết quả predictions vào CSDL.
+#### 2. Hành động cốt lõi 2: Multi-Model WBF (Nút tím Pre-labeling & Ensemble)
+* Nhấn nút màu tím **"Multi-Model WBF"**.
+* Mở hộp thoại tiền gán nhãn đa mô hình (Weighted Box Fusion) với **Phương án B (Khuyên dùng - Triad Ensemble)**:
+  * **Bộ ba Đa Kiến Trúc:**
+    * ⚡ **M1: YOLOv8n** (1-Stage CNN Anchor-free, Task-Aligned Assigner, Trọng số 1.0)
+    * 🎯 **M2: Faster R-CNN MobileNetV3** (2-Stage CNN RPN + RoIAlign, Trọng số 1.0)
+    * 👁️ **M3: RT-DETR-l** (Vision Transformer Deformable Attention, Trọng số 1.2)
+  * **1-Click Inference & WBF:** Nhấn **"⚡ Chạy Inference & WBF Phương Án B"** để hệ thống tự động suy luận đồng thời 3 mô hình trên các frame và hợp nhất kết quả.
+  * Tùy chỉnh trọng số (Weights) và các ngưỡng IoU / Confidence.
+  * Phân tầng đồng thuận 3 cấp: Tier 1 (Đồng thuận cao - Auto accept), Tier 2 (Bất đồng class), Tier 3 (Lệch model).
+  * Hỗ trợ nạp thêm file dự đoán JSON của model mới và có nút **1-Click đẩy Pre-label sang CVAT**.
+  * Ngoài giao diện, có thể chạy qua dòng lệnh: `python backend/scripts/run_triad_inference.py --dataset-id <ID>`.
 
-#### Lựa chọn C: Simulate Benchmark (Mô phỏng Benchmark có kiểm soát)
-* Nhấn nút màu xanh dương **"Simulate Benchmark"**.
-* Hộp thoại mô phỏng mở ra cho phép kéo 2 thanh trượt:
-  * **Missing Ratio (Mặc định 15%):** Tỷ lệ giả lập bỏ sót vật thể để kiểm tra độ nhạy của thuật toán.
-  * **Wrong Class Ratio (Mặc định 15%):** Tỷ lệ giả lập gán nhầm nhãn giữa các cặp dễ nhầm lẫn.
-* Nhấn **"Bắt đầu mô phỏng"**. Hệ thống sẽ tự động sinh dữ liệu dự đoán và thực thi đối soát ngay lập tức.
+#### 3. Hành động cốt lõi 3: Đồng bộ từ CVAT (Inbound Pull)
+* Nhấn nút **"Đồng bộ từ CVAT"** để nhận nhãn mới nhất khi annotator vừa chỉnh sửa trên CVAT. Hệ thống tự động đối soát lại và giải phóng cảnh báo (Auto-resolve).
 
-#### Lựa chọn D: Upload Predictions JSON
-* Nếu bạn đã chạy inference từ một mô hình bên ngoài (ví dụ YOLOv10, Faster-RCNN), bấm **"Upload Predictions"** để nạp file JSON.
+#### 4. Hành động cốt lõi 4: Đẩy nhãn sang CVAT (Outbound Push — An toàn tuyệt đối)
+* Nhấn nút **"Đẩy nhãn sang CVAT"** để đồng bộ dữ liệu sang CVAT Task/Job qua REST API.
+* Cho phép chọn 3 nguồn dữ liệu linh hoạt:
+  * *Gộp thông minh (Merged - Khuyên dùng):* Giữ nguyên 100% nhãn người gán + Bổ sung các vật thể AI phát hiện bị sót.
+  * *Dự đoán của AI Model (Predictions):* Đẩy toàn bộ pre-labels AI sang làm nhãn mồi.
+  * *Nhãn người gán chuẩn (Annotations):* Xuất nhãn ground truth hiện có.
+* Chế độ **Append / Create (Mặc định an toàn)**: Không xóa các nhãn annotator đã vẽ trên CVAT và giữ nguyên 100% video tracks.
+
+#### 5. Menu "Công cụ khác" (Dropdown Menu Nâng cao)
+Gom toàn bộ các tính năng phụ trợ, cấu hình và thử nghiệm vào menu dropdown để tránh gây rối mắt:
+* **Dữ liệu & Model:**
+  * `Upload Predictions JSON`: Nạp kết quả inference từ file bên ngoài.
+  * `Chạy Detector Batch (Cũ)`: Chạy detector hàng loạt trên toàn bộ dataset kiểu cũ.
+* **Thử nghiệm & Benchmark:**
+  * `Simulate Benchmark Sandbox`: Giả lập tỷ lệ sót/sai nhãn để kiểm tra độ nhạy thuật toán.
+* **Cấu hình & Hệ thống:**
+  * `Cấu hình kết nối CVAT`: Đặt URL, Task ID, Job ID và Personal Access Token (PAT).
+  * `Sơ đồ Kiến trúc CVAT × QC`: Mở sơ đồ kiến trúc 3 tầng tham khảo.
+
+#### 6. Kiểm tra lại riêng Frame đang xem (Contextual Action)
+* Khi bạn nhấp vào bất kỳ frame nào trong danh sách, nút **"Kiểm tra lại Frame"** sẽ hiển thị ngay bên cạnh nút **"Open in CVAT"** trong thanh tiêu đề của Frame đó, giúp bạn re-check tức thì sau khi sửa nhãn mà không cần tìm kiếm trên thanh menu chính.
 
 ---
 

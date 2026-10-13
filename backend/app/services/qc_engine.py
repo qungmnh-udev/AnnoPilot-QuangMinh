@@ -147,10 +147,26 @@ def detect_sample_qc_issues(
 ) -> List[Dict[str, Any]]:
     """
     Detect Missing Objects and Wrong Classes for a sample.
+    Prioritizes Multi-Model Ensemble predictions to eliminate duplicate issues across models,
+    grounding QC in consolidated consensus.
     """
     cfg = config or QCConfig()
+
+    # Model prioritization: If ensemble predictions exist, strictly use them to prevent duplicate issues.
+    # If multiple models exist without ensemble, use primary model to avoid cross-model duplication.
+    ensemble_preds = [p for p in predictions if p.source_model and p.source_model.startswith("ensemble_")]
+    if ensemble_preds:
+        active_preds = ensemble_preds
+    else:
+        distinct_models = list(dict.fromkeys(p.source_model for p in predictions if p.source_model))
+        if len(distinct_models) > 1:
+            primary = "yolov8n" if "yolov8n" in distinct_models else distinct_models[0]
+            active_preds = [p for p in predictions if p.source_model == primary]
+        else:
+            active_preds = predictions
+
     matched_pairs, unmatched_preds, _ = match_boxes(
-        annotations, predictions, cfg.iou_match_threshold
+        annotations, active_preds, cfg.iou_match_threshold
     )
 
     issues: List[Dict[str, Any]] = []
@@ -168,6 +184,11 @@ def detect_sample_qc_issues(
             confusion_factor = get_confusion_weight(norm_gt, norm_pred)
             qc_score = min(1.0, max(0.0, iou_val * pred.confidence * confusion_factor))
 
+            extra = getattr(pred, 'extra_data', None) or {}
+            tier = extra.get('tier') or (1 if (pred.source_model and pred.source_model.startswith('ensemble_') and pred.confidence >= 0.80) else None)
+            contributing = extra.get('contributing_models') or ([pred.source_model] if pred.source_model else [])
+            num_agreed = extra.get('num_models_agreed') or len(contributing)
+
             issues.append({
                 'sample_id': sample_id,
                 'issue_type': 'WRONG_CLASS',
@@ -182,6 +203,11 @@ def detect_sample_qc_issues(
                     'model_confidence': round(pred.confidence, 4),
                     'confusion_factor': confusion_factor,
                     'source_model': pred.source_model,
+                    'consensus_tier': tier,
+                    'contributing_models': contributing,
+                    'num_models_agreed': num_agreed,
+                    'tier_reason': extra.get('tier_reason', f"Đồng thuận từ {num_agreed} mô hình" if num_agreed > 1 else ""),
+                    'model_votes': extra.get('model_votes', {}),
                     'reason': f"Detector suggests '{pred.label}' (confidence {pred.confidence:.2f}) instead of human label '{gt.label}' (IoU={iou_val:.2f})"
                 },
                 'status': 'PENDING',
@@ -202,7 +228,14 @@ def detect_sample_qc_issues(
             class_reliability = cfg.class_reliability.get(norm_pred, 0.85)
             size_factor = min(1.0, math.sqrt(box_area) / 25.0)
 
-            qc_score = min(1.0, max(0.0, pred.confidence * (1.0 - max_iou) * class_reliability * (0.8 + 0.2 * size_factor)))
+            extra = getattr(pred, 'extra_data', None) or {}
+            tier = extra.get('tier') or (1 if (pred.source_model and pred.source_model.startswith('ensemble_') and pred.confidence >= 0.80) else None)
+            contributing = extra.get('contributing_models') or ([pred.source_model] if pred.source_model else [])
+            num_agreed = extra.get('num_models_agreed') or len(contributing)
+
+            # Boost score for high consensus across multiple distinct models
+            consensus_boost = 1.15 if (tier == 1 and num_agreed >= 2) else 1.0
+            qc_score = min(1.0, max(0.0, pred.confidence * (1.0 - max_iou) * class_reliability * (0.8 + 0.2 * size_factor) * consensus_boost))
 
             issues.append({
                 'sample_id': sample_id,
@@ -218,6 +251,11 @@ def detect_sample_qc_issues(
                     'model_confidence': round(pred.confidence, 4),
                     'box_area': round(box_area, 1),
                     'source_model': pred.source_model,
+                    'consensus_tier': tier,
+                    'contributing_models': contributing,
+                    'num_models_agreed': num_agreed,
+                    'tier_reason': extra.get('tier_reason', f"Đồng thuận từ {num_agreed} mô hình" if num_agreed > 1 else ""),
+                    'model_votes': extra.get('model_votes', {}),
                     'reason': f"Detector found '{pred.label}' (confidence {pred.confidence:.2f}) with no human annotation nearby (max IoU={max_iou:.2f})"
                 },
                 'status': 'PENDING',
@@ -428,6 +466,47 @@ def audit_single_frame(
                     source_model=source_model
                 )
                 db.add(pred)
+            db.flush()
+
+    # Step 1.5: If multiple models exist on this sample without ensemble, auto-fuse via WBF
+    all_preds = list(sample.predictions)
+    ensemble_preds = [p for p in all_preds if p.source_model and p.source_model.startswith("ensemble_")]
+    distinct_models = list(dict.fromkeys(p.source_model for p in all_preds if p.source_model and not p.source_model.startswith("ensemble_")))
+
+    if not ensemble_preds and len(distinct_models) >= 2:
+        from app.services.ensemble import DetectionBox, weighted_box_fusion
+        per_model: Dict[str, List[DetectionBox]] = {m: [] for m in distinct_models}
+        for p in all_preds:
+            if p.source_model in per_model and p.geometry:
+                g = p.geometry
+                per_model[p.source_model].append(DetectionBox(
+                    label=p.label,
+                    confidence=p.confidence,
+                    x1=float(g.get("x1", 0)),
+                    y1=float(g.get("y1", 0)),
+                    x2=float(g.get("x2", 0)),
+                    y2=float(g.get("y2", 0)),
+                    source_model=p.source_model
+                ))
+        fused = weighted_box_fusion(per_model, confidence_threshold=conf_thresh or 0.30)
+        if fused:
+            for fb in fused:
+                new_p = Prediction(
+                    sample_id=sample.id,
+                    label=fb.label,
+                    geometry=fb.geometry,
+                    confidence=fb.confidence,
+                    source_model="ensemble_wbf_v1",
+                    extra_data={
+                        "tier": fb.tier,
+                        "tier_reason": fb.tier_reason,
+                        "contributing_models": fb.contributing_models,
+                        "model_votes": fb.model_votes,
+                        "num_models_agreed": fb.num_models_agreed,
+                    }
+                )
+                db.add(new_p)
+                sample.predictions.append(new_p)
             db.flush()
 
     # Step 2: Compare annotations with predictions
@@ -1207,11 +1286,19 @@ def push_dataset_annotations_to_cvat(
     cvat_base_url: Optional[str] = None,
     cvat_task_id: Optional[int] = None,
     cvat_job_id: Optional[int] = None,
-    mode: str = "replace"
+    mode: str = "create",
+    target_source: str = "merged"
 ) -> Dict[str, Any]:
     """
-    Push verified annotations from AnnoPilot (Human-in-the-loop Ground Truth)
-    directly to CVAT using the CVAT REST API with Personal Access Token (PAT).
+    Push annotations to CVAT using the CVAT REST API with Personal Access Token (PAT).
+    Supports:
+      - target_source:
+          * 'merged': Human annotations + AI missing objects (recommended)
+          * 'predictions': All model predictions (Pre-annotations)
+          * 'annotations': Human annotations only
+      - mode:
+          * 'create': Safe append (PATCH ?action=create) - does NOT delete existing CVAT shapes
+          * 'replace': Overwrite shapes (PUT) while preserving video tracks
     """
     dataset = db.get(Dataset, dataset_id)
     if not dataset:
@@ -1236,7 +1323,8 @@ def push_dataset_annotations_to_cvat(
         dataset.cvat_job_id = cvat_job_id
     db.commit()
 
-    import urllib.request, urllib.error, json
+    import urllib.request, urllib.error, json, logging
+    logger = logging.getLogger(__name__)
 
     headers = {
         'Authorization': f'Bearer {pat}',
@@ -1258,11 +1346,21 @@ def push_dataset_annotations_to_cvat(
             logger.warning(f"Could not automatically fetch job for task {task_id}: {e}")
 
     # Step 2: Fetch Task Labels to map label names to CVAT label IDs
+    target_task_id = task_id
+    if not target_task_id and job_id:
+        try:
+            req = urllib.request.Request(f"{base}/api/jobs/{job_id}", headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                jdata = json.loads(resp.read().decode('utf-8'))
+                target_task_id = jdata.get('task_id')
+        except Exception:
+            pass
+
     label_map: Dict[str, int] = {}
     default_label_id = None
-    if task_id:
+    if target_task_id:
         try:
-            req = urllib.request.Request(f"{base}/api/labels?task_id={task_id}", headers=headers)
+            req = urllib.request.Request(f"{base}/api/labels?task_id={target_task_id}", headers=headers)
             with urllib.request.urlopen(req, timeout=10) as resp:
                 labels_data = json.loads(resp.read().decode('utf-8'))
                 for l in labels_data.get('results', []):
@@ -1271,17 +1369,23 @@ def push_dataset_annotations_to_cvat(
                     if default_label_id is None:
                         default_label_id = l['id']
         except Exception as e:
-            logger.warning(f"Could not fetch labels for task {task_id}: {e}")
+            logger.warning(f"Could not fetch labels for task {target_task_id}: {e}")
 
     # Synonym mapping for common driving datasets (e.g. BDD100K to CVAT)
     synonyms = {
         'car': ['vehicle', 'car', 'automobile'],
         'truck': ['vehicle', 'truck'],
         'bus': ['vehicle', 'bus'],
+        'vehicle': ['vehicle', 'car', 'truck'],
         'pedestrian': ['pedestrian', 'person'],
+        'person': ['pedestrian', 'person'],
         'rider': ['motorcyclist', 'rider', 'cyclist', 'bicycle'],
+        'motorcyclist': ['motorcyclist', 'motorcycle', 'rider'],
         'motorcycle': ['motorcyclist', 'motorcycle', 'vehicle'],
         'bicycle': ['motorcyclist', 'bicycle', 'vehicle'],
+        'cyclist': ['motorcyclist', 'cyclist', 'bicycle'],
+        'traffic light': ['traffic light', 'vehicle'],
+        'traffic sign': ['traffic sign', 'vehicle'],
     }
 
     def resolve_label_id(raw_label: str) -> Optional[int]:
@@ -1298,40 +1402,93 @@ def push_dataset_annotations_to_cvat(
                 return v
         return default_label_id
 
-    # Step 3: Build CVAT rectangle shapes from dataset annotations
+    # Step 3: Build CVAT rectangle shapes based on target_source
     shapes = []
-    from app.services.pipeline import extract_frame_number
+    samples = db.scalars(
+        select(Sample)
+        .where(Sample.dataset_id == dataset_id)
+        .options(
+            selectinload(Sample.annotations),
+            selectinload(Sample.predictions),
+            selectinload(Sample.qc_issues)
+        )
+    ).all()
 
-    for sample in dataset.samples:
+    for sample in samples:
         frame_idx = sample.frame_number
         if frame_idx is None:
             frame_idx = extract_frame_number(sample.file_name, sample.id - 1)
 
-        for ann in sample.annotations:
-            shape_upper = (ann.shape_type or '').upper()
-            if shape_upper not in ('BBOX_2D', 'RECTANGLE', 'BBOX', 'BOX', '') or not ann.geometry:
-                continue
+        # 1. Human annotations
+        if target_source in ('annotations', 'merged'):
+            for ann in sample.annotations:
+                shape_upper = (ann.shape_type or '').upper()
+                if shape_upper not in ('BBOX_2D', 'RECTANGLE', 'BBOX', 'BOX', '') or not ann.geometry:
+                    continue
+                lid = resolve_label_id(ann.label)
+                if lid is None:
+                    continue
+                g = ann.geometry
+                x1 = round(float(g.get('x1', 0)), 1)
+                y1 = round(float(g.get('y1', 0)), 1)
+                x2 = round(float(g.get('x2', 0)), 1)
+                y2 = round(float(g.get('y2', 0)), 1)
+                shapes.append({
+                    'type': 'rectangle',
+                    'frame': frame_idx,
+                    'label_id': lid,
+                    'points': [x1, y1, x2, y2],
+                    'occluded': bool(ann.occluded),
+                    'outside': False,
+                    'z_order': 0,
+                    'attributes': []
+                })
 
-            lid = resolve_label_id(ann.label)
-            if lid is None:
-                continue
-
-            g = ann.geometry
-            x1 = round(float(g.get('x1', 0)), 1)
-            y1 = round(float(g.get('y1', 0)), 1)
-            x2 = round(float(g.get('x2', 0)), 1)
-            y2 = round(float(g.get('y2', 0)), 1)
-
-            shapes.append({
-                'type': 'rectangle',
-                'frame': frame_idx,
-                'label_id': lid,
-                'points': [x1, y1, x2, y2],
-                'occluded': bool(ann.occluded),
-                'outside': False,
-                'z_order': 0,
-                'attributes': []
-            })
+        # 2. AI Model predictions
+        if target_source == 'predictions':
+            for pred in sample.predictions:
+                if not pred.geometry:
+                    continue
+                lid = resolve_label_id(pred.label)
+                if lid is None:
+                    continue
+                g = pred.geometry
+                x1 = round(float(g.get('x1', 0)), 1)
+                y1 = round(float(g.get('y1', 0)), 1)
+                x2 = round(float(g.get('x2', 0)), 1)
+                y2 = round(float(g.get('y2', 0)), 1)
+                shapes.append({
+                    'type': 'rectangle',
+                    'frame': frame_idx,
+                    'label_id': lid,
+                    'points': [x1, y1, x2, y2],
+                    'occluded': False,
+                    'outside': False,
+                    'z_order': 0,
+                    'attributes': []
+                })
+        elif target_source == 'merged':
+            # Append missing objects discovered by AI model
+            for issue in sample.qc_issues:
+                if issue.issue_type == 'MISSING_OBJECT' and issue.status != 'REJECTED' and issue.location:
+                    lid = resolve_label_id(issue.suggested_label)
+                    if lid is None:
+                        continue
+                    g = issue.location
+                    x1 = round(float(g.get('x1', 0)), 1)
+                    y1 = round(float(g.get('y1', 0)), 1)
+                    x2 = round(float(g.get('x2', 0)), 1)
+                    y2 = round(float(g.get('y2', 0)), 1)
+                    shapes.append({
+                        'type': 'rectangle',
+                        'frame': frame_idx,
+                        'label_id': lid,
+                        'points': [x1, y1, x2, y2],
+                        'occluded': False,
+                        'outside': False,
+                        'z_order': 0,
+                        'attributes': []
+                    })
 
     if not shapes:
         return {
@@ -1347,7 +1504,7 @@ def push_dataset_annotations_to_cvat(
 
     try:
         if mode == "replace":
-            # Fetch existing tracks to preserve any 3D/tracking tracks
+            # Fetch existing tracks and version to preserve video tracks
             get_req = urllib.request.Request(target_endpoint, headers=headers)
             existing_tracks = []
             existing_tags = []
@@ -1356,13 +1513,7 @@ def push_dataset_annotations_to_cvat(
                 with urllib.request.urlopen(get_req, timeout=10) as get_resp:
                     existing = json.loads(get_resp.read().decode('utf-8'))
                     existing_tracks = existing.get('tracks', [])
-                    for t in existing_tracks:
-                        if isinstance(t, dict):
-                            t.pop('id', None)
                     existing_tags = existing.get('tags', [])
-                    for tag in existing_tags:
-                        if isinstance(tag, dict):
-                            tag.pop('id', None)
                     existing_version = existing.get('version', 0)
             except Exception:
                 pass
@@ -1375,13 +1526,13 @@ def push_dataset_annotations_to_cvat(
             }
             data_bytes = json.dumps(payload).encode('utf-8')
             put_req = urllib.request.Request(target_endpoint, data=data_bytes, method='PUT', headers=headers)
-            with urllib.request.urlopen(put_req, timeout=30) as put_resp:
+            with urllib.request.urlopen(put_req, timeout=60) as put_resp:
                 res_code = put_resp.status
-        else: # mode == "create"
+        else: # mode == "create" (Append - Safe mode)
             payload = {'shapes': shapes}
             data_bytes = json.dumps(payload).encode('utf-8')
             patch_req = urllib.request.Request(f"{target_endpoint}?action=create", data=data_bytes, method='PATCH', headers=headers)
-            with urllib.request.urlopen(patch_req, timeout=30) as patch_resp:
+            with urllib.request.urlopen(patch_req, timeout=60) as patch_resp:
                 res_code = patch_resp.status
 
     except urllib.error.HTTPError as e:
@@ -1392,13 +1543,23 @@ def push_dataset_annotations_to_cvat(
 
     cvat_url = f"{base}/tasks/{task_id}/jobs/{job_id}" if job_id else f"{base}/tasks/{task_id}"
 
+    source_labels = {
+        'merged': 'nhãn gộp (nhãn người gán + vật thể AI phát hiện bị sót)',
+        'predictions': 'toàn bộ nhãn dự đoán AI Model (Pre-annotations)',
+        'annotations': 'nhãn người gán đã duyệt'
+    }
+    desc = source_labels.get(target_source, target_source)
+    mode_desc = 'Bổ sung (Append - an toàn, không xóa nhãn cũ)' if mode == 'create' else 'Ghi đè (Replace)'
+
     return {
         'status': 'success',
-        'message': f"Đã đồng bộ thành công {len(shapes)} nhãn sang CVAT Task #{task_id} (Job #{job_id}).",
+        'message': f"Đã đồng bộ thành công {len(shapes)} {desc} sang CVAT Task #{task_id} (Job #{job_id}) theo chế độ {mode_desc}.",
         'cvat_task_id': task_id,
         'cvat_job_id': job_id,
         'pushed_shapes_count': len(shapes),
-        'cvat_url': cvat_url
+        'cvat_url': cvat_url,
+        'target_source': target_source,
+        'mode': mode
     }
 
 # --- Legacy Compatibility Endpoints ---

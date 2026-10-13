@@ -58,6 +58,7 @@ class Prediction(Base):
     geometry = Column(JSON, nullable=False)
     confidence = Column(Float, nullable=False)
     source_model = Column(String, default='pretrained')
+    extra_data = Column(JSON, default=dict)
 
 class QCIssue(Base):
     __tablename__ = 'qc_issues'

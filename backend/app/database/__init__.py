@@ -43,6 +43,11 @@ def initialize_database():
             if 'frame_number' not in cols:
                 connection.execute(text('ALTER TABLE samples ADD COLUMN frame_number INTEGER'))
 
+        if 'predictions' in table_names:
+            cols = {col['name'] for col in insp.get_columns('predictions')}
+            if 'extra_data' not in cols:
+                connection.execute(text('ALTER TABLE predictions ADD COLUMN extra_data JSON'))
+
         if 'qc_issues' in table_names:
             cols = {col['name'] for col in insp.get_columns('qc_issues')}
             if 'frame_number' not in cols:

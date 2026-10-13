@@ -1,184 +1,83 @@
-# AnnoPilot
+# AnnoPilot — Model-assisted QC
 
-**Intelligent Annotation Review Assistant — Review smarter, not more.**
+AnnoPilot phát hiện nghi vấn **sót vật thể** và **sai class**, xếp hạng để reviewer tìm được nhiều lỗi thật với ít công review hơn. CVAT giữ annotation chính; AnnoPilot phân tích bằng chứng và theo dõi QC.
 
-AnnoPilot turns existing annotations into an explainable QC plan. It estimates sample review effort, selects a QC subset, balances reviewer workloads, orders each reviewer's queue, and stores human findings. It runs locally on CPU without an external AI service.
+Workflow: **Pre-label → annotator sửa trên CVAT → AnnoPilot QC → reviewer xác nhận/sửa → đồng bộ → nghiệm thu**.
 
-**Difficulty estimates review effort. It does not predict whether an annotation is correct or incorrect.** A hard sample can be correctly annotated. Only a person records No Issue or Issue Found.
+## Hướng triển khai đã chốt
 
-## Problem and solution
+- Baseline: một lần inference YOLO26n/YOLO26s pretrained.
+- Pilot: kiểm tra chéo nhiều detector, giữ prediction gốc, bất đồng class và candidate chưa được chọn sau fusion. WBF đề xuất pre-label.
+- Đồng thuận không phải ground truth; candidate chưa được chấp thuận không tự trở thành nhãn cuối cùng.
+- Queue xử lý từng frame; inference nhiều model cũng commit prediction/QC sau mỗi frame.
+- Đo bằng Golden Benchmark độc lập: recall Missing Object/Wrong Class, precision/F1, lỗi thật/giờ review, thời gian inference/QC và số vòng bị trả lại.
+- TTA/perturbation, ba detector bắt buộc và Quality Gate khóa export CVAT thuộc bước mở rộng.
 
-Reviewing every sample is expensive, and equal sample counts can hide unequal review effort. AnnoPilot combines media heuristics and task-specific annotation analysis to help people decide what to inspect and who should inspect it.
+## Chạy local trên Windows
 
-## Workflow
-
-Dataset → Import/normalize → Media + annotation analysis → Difficulty → Dataset health → Smart Sampling → Workload balance → Reviewer priority queue → Human review → CSV export.
-
-Upload your own annotations and optional media. There is no demo loader, seeded reviewer, fake analytics or production test data. Multiple datasets can be uploaded and selected from the header.
-
-## Run locally on Windows
-
-The project root is `F:\VinAI\Workspace\Tool\AnnoPilot` on the development machine. Runtime paths are relative to the repository or supplied through environment variables.
-
-Requirements: Python 3.9+ (3.11 recommended on a new machine), Node.js 22+, npm.
-
-One-command setup/start from the project root:
+Python 3.10+, Node.js 22+. Cài và khởi động API/UI:
 
 ```powershell
 .\Start-AnnoPilot.ps1 -Install
 ```
 
-Subsequent starts: `.\Start-AnnoPilot.ps1`. This launches hidden local server processes, prints their IDs, and writes ignored logs. It refuses to overwrite existing listeners on 3000/8000.
+Các lần sau: `.\Start-AnnoPilot.ps1`. Frontend: http://localhost:3000. Swagger: http://localhost:8000/docs.
 
-Or use two terminals:
-
-```powershell
-Set-Location "F:\VinAI\Workspace\Tool\AnnoPilot\backend"
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
+API nhận prediction JSON mà không cần cài model. Để inference local:
 
 ```powershell
-Set-Location "F:\VinAI\Workspace\Tool\AnnoPilot\frontend"
-npm ci
-npm run dev
+.\backend\.venv\Scripts\python.exe -m pip install -r backend/requirements-models.txt
 ```
 
-- Frontend: http://localhost:3000
-- Backend health: http://localhost:8000/api/health
-- Swagger: http://localhost:8000/docs
+YOLO26n là mặc định; chọn YOLO26s trong dropdown YOLO trên Model QC. Lựa chọn áp dụng cho Queue, kiểm tra frame, detector và M1 của ensemble; chỉ chọn một biến thể YOLO mỗi lần. Prediction YOLOv8 cũ được giữ với model ID gốc, không đổi tên thành YOLO26.
 
-## Docker
+Checkpoint chính thức nằm tại `backend/models/yolo26n.pt` và `backend/models/yolo26s.pt`, không tự fallback về YOLOv8/fine-tuned checkpoint. File weights không được commit; máy mới cần tải chúng từ release Ultralytics `v8.4.0`. Triad gồm YOLO26 đã chọn, Faster R-CNN MobileNetV3 và RT-DETR-l; Faster R-CNN có thể tải weights lần đầu.
+
+Đã chạy thật cả hai YOLO26 trên CPU của máy hiện tại: n trung bình **85,4 ms/ảnh**, s **165,08 ms/ảnh**, ở imgsz 640, 15 ảnh demo, hai lượt sau warm-up. Đây là kiểm tra tài nguyên/tốc độ, chưa đo chất lượng detection hay toàn pipeline ensemble. [Báo cáo phần cứng](doc/yolo26-hardware.md).
 
 ```powershell
-docker compose up --build
+.\backend\.venv\Scripts\python.exe backend/scripts/benchmark_yolo26.py --device cpu
 ```
 
-Docker serves the built frontend through Nginx on 3000 and FastAPI on 8000. Nginx proxies `/api` to `backend:8000`; the browser never needs to resolve Docker service names. SQLite lives in the named `database` volume; uploads/exports are bind-mounted. `docker compose down` preserves the named database volume; removing volumes erases it.
+## QC và ensemble
 
-**Verification:** `docker compose config --quiet` passed. Container build/start has not been verified because Docker Desktop was manually paused on this machine. Unpause it before running Compose. Stop the local servers first if they occupy 3000/8000. Local and Docker SQLite stores are separate.
+Spatial matching không ép cùng class. Mỗi model có tối đa một phiếu/candidate; mọi detection được giữ trong evidence. Class chọn theo tổng `model_weight × confidence`; tọa độ fusion dùng detection bỏ phiếu cho class được chọn.
 
-## Format and task support
+- Tier 1: ít nhất hai model cùng class, min confidence ≥ .85, average pairwise IoU ≥ .60.
+- Tier 2: matched nhưng bất đồng class.
+- Tier 3: một model phát hiện hoặc đồng thuận chưa đạt ngưỡng Tier 1.
 
-| Format | Implemented tasks | Scope and limitations |
-| --- | --- | --- |
-| CVAT images XML | BBox 2D, polygons, points, mixed | Attributes, occlusion and source metadata retained. CVAT points do not invent visibility. Video tracks, ellipse, polyline, skeleton and CVAT raster masks are unsupported and reported. |
-| COCO JSON | BBox, polygon segmentation, keypoints, mixed | Keypoint visibility and category point names retained. RLE masks are preserved in their source representation; mask boundary/area/crowding metrics and rendering are unavailable. Geometry preference per source instance: keypoints, then segmentation, then bbox; avoids scoring the same instance three times. Multiple polygon rings are separate normalized shapes. |
-| YOLO detection TXT | BBox 2D | Standard five-field `class cx cy w h` only. Exactly one matching image is required to convert normalized coordinates to pixels. Optional `classes.txt` supplies class names; otherwise source numeric IDs are preserved. YOLO segmentation/pose exports are unsupported. |
-| KITTI label TXT | Cuboid 3D | Standard 15+ fields, truncation, occlusion, original 2D box, alpha and geometry retained. DontCare records excluded. Dimensions are height/width/length; position is bottom center in the rectified camera frame, x right/y down/z forward. No sensor transform is invented. |
+QC đọc prediction gốc. Bất đồng vẫn tạo Wrong Class candidate dù annotation trùng class mà fusion chọn. Candidate không được chọn vẫn có thể tạo Missing Object candidate.
 
-JPG/JPEG/PNG are decoded and analyzed. BIN/PCD files can be uploaded and retained/matched as sensor media; point-cloud decoding, calibration, point-in-cuboid density and interactive 3D visualization are not implemented. Cuboid review uses normalized metadata and available features.
+Ngưỡng mặc định: match IoU .50; missing max IoU .20; missing confidence .40; wrong-class confidence .45; min area 100 px². Đây là heuristic cần kiểm chứng, không phải xác suất lỗi đã calibration.
 
-Annotation samples remain when media is missing. Names match by relative suffix, then unique basename, then unique stem. Ambiguous matches produce availability warnings, not an arbitrary image. Images are preferred over point clouds for a shared KITTI stem. ZIPs may wrap annotations and media in directory trees. Upload annotation and media archives through their respective fields. An import containing duplicate sample names is rejected to avoid accidental merging.
+## Đánh giá và nghiệm thu
 
-Malformed documents return useful errors and are rolled back. Invalid individual shapes/lines are skipped with warnings. Empty sample sets are rejected; samples with zero valid annotations remain and display a warning.
+Mở **Model QC → Đánh giá Baseline → Pilot & vòng nghiệm thu**:
 
-## Architecture and persistence
+1. Nạp golden JSON do người kiểm chứng độc lập cung cấp, bao gồm vùng không có warning.
+2. Chọn baseline và ít nhất hai nguồn pilot, bao gồm baseline.
+3. So sánh trước khi sửa annotation. Hai cấu hình dùng cùng snapshot và golden; evaluator không sửa operational issues.
+4. Nhập thời gian review thực tế nếu đã đo. Không có mẫu/thời gian hiển thị `—`.
+5. Ghi nhận nộp → trả lại (bắt buộc lý do) → nộp lại → chấp nhận. Số lần audit không phải số vòng trả lại.
 
-```text
-frontend/src/          React + TypeScript, Vite, Tailwind, Recharts, Lucide
-backend/app/database/ SQLAlchemy engine/session and additive migration
-backend/app/models/   SQLite entities and relationships
-backend/app/schemas/  Pydantic configuration/request validation
-backend/app/parsers/  BaseAnnotationParser and four format strategies
-backend/app/analyzers/ BaseDifficultyAnalyzer and four task strategies
-backend/app/services/ Import, media matching, scoring, sampling, balancing
-backend/app/routers/  REST workflow and exports
-backend/tests/        Isolated pytest and browser fixtures
-uploads/              User files, ignored by Git
-exports/              Generated CSVs, ignored by Git
-HANDOFF.md            Verified state and continuation instructions
-```
+[Hướng dẫn JSON, API và metric](doc/huong-dan-su-dung.md) · [Hướng triển khai đã chốt](doc/project-direction.md).
 
-SQLite stores datasets, samples, flexible JSON annotations, detailed analyses, settings, sampling runs/selections, reviewers and assignments. Review status/note are stored on the assignment as a one-to-one review result, avoiding an extra table for the same lifecycle. Restarting the backend preserves data. Deleting a dataset cascades its records and removes its uploaded folder. CSV files can be regenerated; older exported files are not automatically deleted.
-
-Optional environment variables: `DATABASE_URL`, `UPLOAD_DIR`, `EXPORT_DIR` and frontend dev `API_PROXY_TARGET`. No secrets are needed.
-
-## Difficulty formulas
-
-All normalized feature values lie in [0,1]. Each feature records `value`, `raw`, `available`, `reason_if_unavailable`. Weighted scoring is `100 × sum(value × weight) / sum(available weights)`. Unavailable features are removed from both numerator and denominator; all unavailable gives an unavailable score. Settings validate the expected keys, finite nonnegative weights and a group sum of 1.
-
-Visual defaults:
-
-| Feature | Normalized heuristic | Weight |
-| --- | --- | --- |
-| Blur | `1 / (1 + variance_of_Laplacian / 100)` | .30 |
-| Exposure | `abs(grayscale_mean - 127.5) / 127.5` | .25 |
-| Low contrast | `1 - min(grayscale_std / 64, 1)` | .20 |
-| Edge complexity | `min(Canny_edge_density / .2, 1)` | .15 |
-| Entropy complexity | `grayscale_histogram_entropy / 8` | .10 |
-
-Image analysis downsizes the longest side to at most 1600 pixels for CPU cost. Original annotation dimensions remain intact. Edge density and entropy are complexity heuristics; high values do not imply bad image quality.
-
-Task defaults:
-
-- BBox: count capped at 20 objects (.20), tiny fraction (.25), known occlusion fraction (.20), unique-pair IoU overlap fraction (.20), rare-label fraction (.15).
-- Segmentation: count (.20), tiny polygon regions (.20), mean vertex-count complexity capped at 50 vertices (.25), bounding-envelope crowding proxy (.20), rare-label fraction (.15). Shoelace polygon area is used. Crowding is explicitly not polygon IoU. Source occlusion is shown as an informational metric.
-- Keypoint: instance count (.20), missing fraction among known visibility (.25), occluded fraction among known visibility (.25), visible-pose envelope crowding (.15), rare-label fraction (.15). Unknown visibility is never assumed visible/missing. No articulated skeleton or inferred pose-quality metric is claimed.
-- Cuboid: count (.20), known occlusion (.20), mean source truncation (.20), center pairs within five meters (.15), rare-label fraction (.15), sparsity (.10, unavailable until calibrated point analysis exists). Distance-to-sensor, projection quality and point density are unavailable and carry reasons.
-
-Common defaults: tiny area ratio `< .01`; bbox/crowding IoU `> .30`; rare class frequency `< .05` of **all dataset annotations**. Count caps and fixed metric scales prevent one extreme sample from compressing the entire dataset. Pairwise metrics above 2,000 instances are explicitly unavailable to bound CPU cost.
-
-Mixed samples analyze each task independently, then take an annotation-count-weighted mean of available task scores. Overall defaults are 70% annotation / 30% visual, renormalized if either source is unavailable. A measured empty annotation list has annotation difficulty 0; it is not missing annotation data. Scores are clamped to [0,100]: EASY <40, MEDIUM <70, HARD >=70. Exact weighted feature contributions are persisted and displayed. No random scoring or correctness probability is used.
-
-Settings expose all task/visual/overall weight groups and thresholds. Saving atomically recalculates all datasets. Recalculation increments a dataset revision; prior sampling/assignments are marked **Needs Regeneration**. Old human reviews are retained and included in review-results exports.
-
-## QC planning and review
-
-Default sampling: 10% budget, 40% seeded random coverage / 40% high difficulty / 20% measured rare-edge signals, seed 42. Percentage budgets round up; counts must be whole numbers; budgets are capped to dataset size. Largest-remainder quotas use stable strategy order for ties. Strategies select in coverage→difficulty→edge order with no duplicates. Empty buckets redistribute through seeded coverage with the explicit reason `coverage_fallback`.
-
-Greedy workload balancing sorts selected samples by difficulty descending and assigns to the reviewer with least total difficulty, then fewest samples, then stable reviewer ID. Only the latest QC subset is balanced. Unavailable overall difficulty is rejected instead of treated as zero effort. This heuristic balances effort but does not guarantee a globally optimal partition.
-
-Each reviewer has an independent difficulty-ordered queue. No Issue stores REVIEWED; Issue Found stores ISSUE_FOUND; Skip stores SKIPPED. Notes are persisted. Next Priority Sample advances to another PENDING sample; skipped samples remain manually accessible. Saved reviews prevent destructive reviewer removal or rebalancing that subset. Generate a new subset to start a new planning run; historical results remain exportable.
-
-CSV exports: `smart_sample.csv`, `review_assignments.csv`, `review_results.csv`. Exports use UTF-8 BOM for Excel, preserve unavailable scores as empty cells, and escape formula-like user text. Review results include historical runs; repeated samples may appear once per review run.
-
-## REST API
-
-Swagger is the authoritative request/response explorer.
-
-| Route | Purpose |
-| --- | --- |
-| GET `/api/health` | Liveness |
-| GET `/api/datasets`, GET/DELETE `/api/datasets/{id}` | Dataset list, health summary and deletion |
-| POST `/api/datasets/upload` | Multipart annotations/media and synchronous analysis |
-| GET `/api/datasets/{id}/samples`, `/api/samples/{id}`, `/api/samples/{id}/media` | Summaries, normalized details and original media |
-| GET/PUT `/api/settings`, POST `/api/datasets/{id}/recalculate` | Configuration and recalculation |
-| GET/POST `/api/datasets/{id}/sampling` | Latest QC subset and new run |
-| GET/POST `/api/datasets/{id}/reviewers`, DELETE `/api/reviewers/{id}` | Human review team |
-| POST `/api/datasets/{id}/balance`, GET `/api/datasets/{id}/assignments` | Workload and latest assignments |
-| GET `/api/reviewers/{id}/queue`, PUT `/api/assignments/{id}/review` | Ordered queues, human statuses/notes |
-| GET `/api/datasets/{id}/exports/{kind}` | CSV download and local export copy |
-
-## Navigation and appearance
-
-Home (`/`) and Settings (`/settings`) are available without a dataset. Dashboard (`/dashboard`), Dataset (`/dataset`), Difficulty (`/difficulty`), Smart Sampling (`/smart-sampling`), Workload (`/workload`) and Review Queue (`/review-queue`) share a dataset guard, including direct URLs and browser history. Missing data opens a feature-specific dialog with Stay Here and Upload Dataset; the upload action opens the existing importer and returns to the requested feature after success. Loading and backend failures have separate states, with Retry on connection errors.
-
-Home is a permanent sidebar destination and product overview, separate from the dataset health Dashboard. It shows the seven-step workflow, five review modules and supported tasks with explicit partial-support limitations. Without data, its primary action opens Upload Dataset. With data, it shows real active dataset counts and offers Open Dashboard; `/` never automatically becomes Dashboard. Home remains available while the workspace loads. The guard's Stay Here action preserves the current Home/Settings page when opened from navigation.
-
-Settings → Appearance provides Light, Dark and System themes, plus Small, Medium and Large interface text. Defaults are System and Medium. Preferences apply globally and persist in this browser's localStorage; System responds to live device preference changes. Scoring settings remain independent of appearance. Tables retain horizontal scrolling at larger text sizes.
-
-Base interface sizes are Small 16px, Medium 18px and Large 20px. Relative typography preserves heading/body/caption hierarchy; sidebar, controls, tables, dialogs and all workflow pages scale together.
-
-Run the focused appearance lifecycle check with `node scripts/verify-appearance.cjs` from `frontend`.
-
-## Tests and build
+## Kiểm tra
 
 ```powershell
 Set-Location backend
 .\.venv\Scripts\python.exe -m pytest -q
-Set-Location ..\frontend
-npm run build
-npm audit
+Set-Location ../frontend
+npm.cmd run build
 ```
 
-Fixtures live only under `backend/tests`; pytest uses temporary SQLite/uploads/exports and removes them on completion. Tests cover parsers, validation, geometry, unavailable features, scoring/contributions, deterministic sampling, budget redistribution, balancing, upload matching, unsafe ZIP rejection, the full review/export lifecycle and stale planning revisions. Refer to HANDOFF.md for the latest executed counts and browser verification.
+Test dùng SQLite/uploads/exports tạm. Migration thêm bảng/cột và giữ dữ liệu hiện có khi backend khởi động lại.
 
-## Local MVP limits and future work
+## Giới hạn
 
-This is a local trusted-workspace tool without login, RBAC or internet deployment hardening. Import/analysis is synchronous. Large imports can take time; no background task scheduler is used. Limits: 512 MiB per upload group, 2 GiB expanded ZIP content and 10,000 extracted entries per group, 50,000 samples per import. The dataset browser paginates 20 rows in memory; it fetches all sample summaries. Full 3D visualization, calibrated sensor analysis, RLE rendering/metrics, CVAT video tracks, articulated pose skeletons and server-side pagination are future work.
+Chưa có benchmark thật chứng minh ensemble tốt hơn baseline. Tests phần mềm không thay thế đánh giá model. Matching dùng greedy IoU, có thể nhầm trong cảnh đông đúc. COCO pretrained không có rider riêng, chỉ nhận stop sign trong nhóm traffic sign; mapping không tạo thêm năng lực cho model.
 
-Source dependencies and lockfile are committed; venv/node_modules/database/user media are not. Keep database and uploads together for backup. Read HANDOFF.md before continuing development on another machine.
+Queue state ở RAM, chưa resume bền vững sau restart. Sync CVAT do người dùng kích hoạt; chưa có push tự động từng frame, CVAT issue overlay, Quality Gate khóa export hay TTA. Append tránh box trùng chính xác trong shapes hiện có, chưa có idempotency/concurrency phân tán. Task/Job, frame mapping và taxonomy cần khớp cấu hình.
+
+Tỷ lệ frame không có warning không chứng minh ảnh sạch hoặc công review giảm. Nghiệm thu là quyết định do người dùng ghi nhận.

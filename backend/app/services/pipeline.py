@@ -104,7 +104,7 @@ def import_dataset(db, name, requested_format, requested_task, annotation_paths,
         dataset.cvat_job_id = parser.cvat_job_id
     db.add(dataset)
     db.flush()
-    for source in normalized:
+    for frame_index, source in enumerate(normalized):
         annotations = source.pop('annotations')
         path, warning = match_media(source['file_name'], media)
         if warning:
@@ -123,7 +123,7 @@ def import_dataset(db, name, requested_format, requested_task, annotation_paths,
                 parser.warnings.append(source['file_name'] + ': image could not be decoded')
                 path = None
         sample = Sample(**source, dataset_id=dataset.id, media_path=str(path) if path else None, task_type=task_type(annotations))
-        sample.frame_number = extract_frame_number(source['file_name'])
+        sample.frame_number = source.get('frame_number', extract_frame_number(source['file_name'], frame_index))
         sample.annotations = [Annotation(**a) for a in annotations]
         dataset.samples.append(sample)
     dataset.warnings = parser.warnings
@@ -132,7 +132,7 @@ def import_dataset(db, name, requested_format, requested_task, annotation_paths,
 import re
 
 def extract_frame_number(file_name: str, fallback_id: int = 0) -> int:
-    digits = re.findall(r'\d+', Path(file_name).stem)
+    digits = re.findall(r'(?:^|[_-])frame[_-]?(\d+)$', Path(file_name).stem, re.IGNORECASE)
     if digits:
         try:
             return int(digits[-1])
@@ -143,8 +143,9 @@ def extract_frame_number(file_name: str, fallback_id: int = 0) -> int:
 def sample_dict(s, details=False, dataset=None):
     qc_issues = getattr(s, 'qc_issues', [])
     qc_score, qc_severity = 0.0, 'CLEAN'
-    if qc_issues:
-        scores = [i.qc_score for i in qc_issues]
+    pending = [i for i in qc_issues if i.status == 'PENDING']
+    if pending:
+        scores = [i.qc_score for i in pending]
         max_score = max(scores) if scores else 0.0
         boost = 0.04 * min(len(scores) - 1, 5) if len(scores) > 1 else 0.0
         qc_score = min(1.0, round(max_score + boost, 4))
@@ -175,9 +176,11 @@ def sample_dict(s, details=False, dataset=None):
         height=s.height,
         annotation_count=len(s.annotations),
         prediction_count=len(preds),
+        inference_state=s.inference_state or {},
+        qc_processing_state=('ERROR' if any(v.get('status') == 'ERROR' for v in (s.inference_state or {}).values()) else ('PROCESSED' if preds or s.inference_state else 'NOT_RUN')),
         qc_score=qc_score,
         qc_severity=qc_severity,
-        qc_issue_count=len(qc_issues),
+        qc_issue_count=len(pending),
         media_url=f'/api/samples/{s.id}/media' if s.media_path else None,
         media_kind=Path(s.media_path).suffix.lower() if s.media_path else None,
         annotation_difficulty=None,
@@ -205,7 +208,8 @@ def sample_dict(s, details=False, dataset=None):
                 label=p.label,
                 geometry=p.geometry,
                 confidence=p.confidence,
-                source_model=p.source_model
+                source_model=p.source_model,
+                extra_data=p.extra_data or {}
             ) for p in preds
         ]
         result['qc_issues'] = [
@@ -239,7 +243,7 @@ def dataset_dict(dataset):
         cvat_task_id=getattr(dataset, 'cvat_task_id', None),
         cvat_job_id=getattr(dataset, 'cvat_job_id', None),
         cvat_base_url=getattr(dataset, 'cvat_base_url', 'http://localhost:8080'),
-        cvat_token=getattr(dataset, 'cvat_token', 'ISQjKy3C.KDdn6nz1T65dB0A0s1yhb2ZWIQVcSDAO'),
+        cvat_token=getattr(dataset, 'cvat_token', ''),
         created_at=dataset.created_at.isoformat(),
         sample_count=len(samples),
         annotation_count=sum(counts.values()),

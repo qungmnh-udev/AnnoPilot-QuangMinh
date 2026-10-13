@@ -3305,3 +3305,11 @@ pre {
   font-size: 0.875rem;
 }
 
+/* Baseline/pilot evaluation and acceptance history. */
+.qc-evaluation-panel { padding: 1rem; margin: 1rem 0; }
+.qc-evaluation-panel summary { cursor: pointer; }
+.qc-evaluation-controls { display: flex; flex-wrap: wrap; align-items: end; gap: .8rem; margin: .8rem 0; }
+.qc-evaluation-controls label { display: flex; flex-direction: column; gap: .35rem; }
+.qc-evaluation-controls label:has(input[type="checkbox"]) { flex-direction: row; align-items: center; }
+.qc-evaluation-panel input, .qc-evaluation-panel select { max-width: 100%; }
+.qc-model-evidence { padding: .75rem; overflow-wrap: anywhere; }

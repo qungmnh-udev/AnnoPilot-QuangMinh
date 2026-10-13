@@ -17,7 +17,7 @@ def test_coco_to_bdd100k_taxonomy_mapping():
 
 def test_triad_architectural_diversity_specs():
     """Verify Option B Triad consists of 3 distinct architecture families."""
-    assert "yolov8n" in TRIAD_SPECS
+    assert "yolo26n" in TRIAD_SPECS
     assert "fasterrcnn_mobilenet_v3" in TRIAD_SPECS
     assert "rtdetr_l" in TRIAD_SPECS
 
@@ -32,7 +32,7 @@ def test_api_triad_specs_endpoint():
     response = client.get("/api/ensemble/triad/specs")
     assert response.status_code == 200
     data = response.json()
-    assert "yolov8n" in data
+    assert "yolo26n" in data
     assert "fasterrcnn_mobilenet_v3" in data
     assert "rtdetr_l" in data
     assert data["rtdetr_l"]["family"] == "Vision Transformer"

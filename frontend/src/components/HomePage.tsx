@@ -16,7 +16,7 @@ const modules = [
   [
     ShieldAlert,
     "Model-Assisted QC (N2-04D)",
-    "Dùng Pretrained Object Detector (YOLOv8) đối soát với Ground Truth BDD100K.",
+    "Baseline một detector và pilot kiểm tra chéo nhiều model để tìm sót vật thể, sai class.",
   ],
   [
     ListFilter,
@@ -35,8 +35,8 @@ const modules = [
   ],
   [
     TrendingDown,
-    "Workload Reduction",
-    "Tự động lọc các ảnh sạch có độ đồng thuận cao, cắt giảm 60% – 80% công sức kiểm tra.",
+    "Baseline → Pilot",
+    "Đo recall từng loại lỗi, precision, lỗi thật trên mỗi giờ review và số vòng bị trả lại.",
   ],
   [
     Eye,
@@ -150,7 +150,7 @@ export function HomePage({
         <ol className="home-workflow">
           {[
             "Nạp BDD100K",
-            "YOLOv8 Inference",
+            "YOLO26 Inference",
             "IoU Audit Engine",
             "Hàng đợi Ưu tiên",
             "Visual Diff 2 lớp",

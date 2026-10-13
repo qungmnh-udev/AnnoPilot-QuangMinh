@@ -4,6 +4,7 @@ export type Feature = {
   available: boolean;
   reason_if_unavailable: string | null;
 };
+export type YOLOVariant = 'yolo26n' | 'yolo26s';
 export type Analysis = {
   visual: {
     features: Record<string, Feature>;
@@ -75,6 +76,8 @@ export type Sample = {
   height: number | null;
   annotation_count: number;
   prediction_count?: number;
+  qc_processing_state?: 'NOT_RUN' | 'PROCESSED' | 'ERROR';
+  inference_state?: Record<string, { status: string; checkpoint?: string; error?: string }>;
   qc_score?: number;
   qc_severity?: 'HIGH' | 'MEDIUM' | 'LOW' | 'CLEAN';
   qc_issue_count?: number;
@@ -103,6 +106,9 @@ export type Sample = {
 export type QCAuditReport = {
   dataset_id: number;
   total_samples: number;
+  processed_samples_count?: number;
+  inference_error_samples_count?: number;
+  unprocessed_samples_count?: number;
   flagged_samples_count: number;
   clean_samples_count: number;
   workload_reduction_percentage: number;
@@ -206,6 +212,7 @@ export type CVATPushResponse = {
 export type DatasetModelsResponse = {
   dataset_id: number;
   models: string[];
+  active_models?: string[];
   counts: Record<string, number>;
   has_ensemble: boolean;
 };
@@ -249,6 +256,7 @@ export type TriadRunRequest = {
 
 export type TriadRunResponse = {
   success: boolean;
+  skipped_frames?: string[];
   frames_processed: number;
   selected_models: string[];
   model_counts: Record<string, number>;

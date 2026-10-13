@@ -15,6 +15,7 @@ from app.models import Sample, Annotation, Prediction, QCIssue, Dataset
 from app.schemas.qc import QCConfig, BBoxGeometry
 from app.database import SessionLocal
 from app.services.pipeline import extract_frame_number
+from app.services.yolo_detector import get_yolo_weights_path, resolve_yolo_model, predict_yolo, inference_device, activate_yolo_state
 
 _REPORT_CACHE: Dict[int, Dict[str, Any]] = {}
 _CACHE_LOCK = threading.Lock()
@@ -152,18 +153,20 @@ def detect_sample_qc_issues(
     """
     cfg = config or QCConfig()
 
-    # Model prioritization: If ensemble predictions exist, strictly use them to prevent duplicate issues.
-    # If multiple models exist without ensemble, use primary model to avoid cross-model duplication.
-    ensemble_preds = [p for p in predictions if p.source_model and p.source_model.startswith("ensemble_")]
-    if ensemble_preds:
-        active_preds = ensemble_preds
+    if cfg.strategy == 'multi_model':
+        from app.services.cross_verification import cross_verify
+        verified = cross_verify(sample_id, annotations, predictions, cfg)
+        if verified is not None:
+            return verified
+    raw_preds = [p for p in predictions if not (p.source_model or '').startswith('ensemble_')]
+    if cfg.strategy == 'baseline':
+        models = sorted({p.source_model for p in raw_preds if p.source_model})
+        primary = cfg.baseline_model or (resolve_yolo_model() if resolve_yolo_model() in models else (models[0] if models else None))
+        if cfg.baseline_model and primary not in models:
+            raise ValueError('Selected baseline model has no predictions on this frame')
+        active_preds = [p for p in raw_preds if p.source_model == primary]
     else:
-        distinct_models = list(dict.fromkeys(p.source_model for p in predictions if p.source_model))
-        if len(distinct_models) > 1:
-            primary = "yolov8n" if "yolov8n" in distinct_models else distinct_models[0]
-            active_preds = [p for p in predictions if p.source_model == primary]
-        else:
-            active_preds = predictions
+        active_preds = raw_preds or predictions
 
     matched_pairs, unmatched_preds, _ = match_boxes(
         annotations, active_preds, cfg.iou_match_threshold
@@ -288,26 +291,15 @@ def compute_sample_qc_score(issues: List[Any]) -> Tuple[float, str]:
 
 _DETECTOR_CACHE: Dict[str, Any] = {}
 
-def get_best_model_path() -> Optional[Path]:
-    """Find the best available model weights."""
-    candidates = [
-        Path("models/yolov8n_bdd100k.pt"),
-        Path("backend/models/yolov8n_bdd100k.pt"),
-        Path("../training/runs/qc_finetuned/weights/best.pt"),
-        Path("../training/yolov8n_bdd100k_init.pt"),
-        Path("yolov8n.pt"),
-        Path("models/yolov8n.onnx"),
-        Path("backend/models/yolov8n.onnx"),
-    ]
-    for c in candidates:
-        if c.is_file():
-            return c
-    return None
+def get_best_model_path(model_name=None):
+    return get_yolo_weights_path(model_name)
+
 
 def detect_image_objects(
     image_path: Union[str, Path],
     conf_thresh: float = 0.35,
-    model_path: Optional[Union[str, Path]] = None
+    model_path: Optional[Union[str, Path]] = None,
+    model_name: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Run object detection on a single image.
@@ -315,44 +307,18 @@ def detect_image_objects(
     """
     img_p = Path(image_path)
     if not img_p.is_file():
-        return []
+        raise RuntimeError('Image file is unavailable')
 
-    target_model_path = Path(model_path) if model_path else get_best_model_path()
+    target_model_path = Path(model_path) if model_path else get_best_model_path(model_name)
     if not target_model_path or not target_model_path.is_file():
-        return []
+        raise RuntimeError('Detector checkpoint is unavailable')
 
     model_key = str(target_model_path.resolve())
 
-    # Try Ultralytics YOLO
     if target_model_path.suffix.lower() == '.pt':
-        try:
-            from ultralytics import YOLO
-            if model_key not in _DETECTOR_CACHE:
-                _DETECTOR_CACHE[model_key] = YOLO(model_key)
-            model = _DETECTOR_CACHE[model_key]
-
-            results = model.predict(source=str(img_p), conf=conf_thresh, verbose=False)
-            boxes = []
-            for r in results:
-                for b in r.boxes:
-                    cls_id = int(b.cls[0])
-                    conf = float(b.conf[0])
-                    xyxy = b.xyxy[0].tolist()
-                    label = model.names.get(cls_id, f"class_{cls_id}")
-
-                    boxes.append({
-                        "label": label,
-                        "confidence": round(conf, 3),
-                        "geometry": {
-                            "x1": round(xyxy[0], 2),
-                            "y1": round(xyxy[1], 2),
-                            "x2": round(xyxy[2], 2),
-                            "y2": round(xyxy[3], 2)
-                        }
-                    })
-            return boxes
-        except Exception:
-            pass
+        return predict_yolo(image_path, conf_thresh, model_name=model_name, weights_path=target_model_path)
+    if target_model_path.stem.startswith('yolo26'):
+        raise ValueError('Use YOLO26 .pt checkpoints; the legacy ONNX decoder is incompatible with NMS-free output')
 
     # Fallback to OpenCV DNN for ONNX models
     if target_model_path.suffix.lower() == '.onnx':
@@ -366,7 +332,7 @@ def detect_image_objects(
 
             img = cv2.imread(str(img_p))
             if img is None:
-                return []
+                raise RuntimeError('Image cannot be decoded')
             h, w = img.shape[:2]
             blob = cv2.dnn.blobFromImage(img, 1 / 255.0, (640, 640), swapRB=True, crop=False)
             net.setInput(blob)
@@ -409,7 +375,12 @@ def detect_image_objects(
                 for idx in indices.flatten():
                     b = boxes[idx]
                     cid = class_ids[idx]
-                    label = bdd_classes.get(cid, 'car')
+                    coco_classes = {0: 'pedestrian', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 5: 'bus', 6: 'train', 7: 'truck', 9: 'traffic light', 11: 'traffic sign'}
+                    if num_classes not in (10, 80):
+                        raise RuntimeError('Unsupported ONNX class taxonomy')
+                    label = (bdd_classes if num_classes == 10 else coco_classes).get(cid)
+                    if label is None:
+                        continue
                     output_boxes.append({
                         "label": label,
                         "confidence": round(confidences[idx], 3),
@@ -421,10 +392,10 @@ def detect_image_objects(
                         }
                     })
             return output_boxes
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError(f'ONNX inference failed: {exc}') from exc
 
-    return []
+    raise RuntimeError('Unsupported detector checkpoint format')
 
 # --- Single Frame Audit (Priority P0: Incremental Processing) ---
 
@@ -434,8 +405,9 @@ def audit_single_frame(
     config: Optional[QCConfig] = None,
     run_detector: bool = True,
     conf_thresh: float = 0.35,
-    source_model: str = "yolov8-bdd100k",
-    commit: bool = True
+    source_model: Optional[str] = None,
+    commit: bool = True,
+    model_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Perform QC audit for a single frame independently.
@@ -446,34 +418,51 @@ def audit_single_frame(
     if not sample:
         raise ValueError(f"Sample #{sample_id} not found")
 
+    selected_yolo = resolve_yolo_model(model_name)
+    source_model = source_model or selected_yolo
     cfg = config or QCConfig()
 
     # Step 1: Run detection if requested and media exists
     if run_detector and sample.media_path and os.path.isfile(sample.media_path):
-        detected_boxes = detect_image_objects(sample.media_path, conf_thresh=conf_thresh)
-        if detected_boxes:
-            # Clear existing predictions from same source model
-            db.execute(delete(Prediction).where(
-                Prediction.sample_id == sample.id,
-                Prediction.source_model == source_model
-            ))
-            for b in detected_boxes:
-                pred = Prediction(
-                    sample_id=sample.id,
-                    label=b['label'],
-                    geometry=b['geometry'],
-                    confidence=b['confidence'],
-                    source_model=source_model
-                )
-                db.add(pred)
-            db.flush()
+        started_inference = time.perf_counter()
+        try:
+            detected_boxes = detect_image_objects(sample.media_path, conf_thresh=conf_thresh, model_name=selected_yolo)
+        except Exception as exc:
+            sample.inference_state = activate_yolo_state(sample.inference_state, source_model, {'status': 'ERROR', 'error': str(exc)})
+            db.commit()
+            invalidate_qc_report_cache(sample.dataset_id)
+            raise
+        elapsed_inference = time.perf_counter() - started_inference
+        from app.services.provenance import detector_provenance
+        sample.inference_state = activate_yolo_state(sample.inference_state, source_model, {**detector_provenance(get_best_model_path(selected_yolo)), 'status': 'SUCCESS', 'device': inference_device(), 'imgsz': 640, 'inference_seconds': elapsed_inference, 'conf_thresh': conf_thresh, 'completed_at': datetime.now(timezone.utc).isoformat()})
+        db.execute(delete(Prediction).where(Prediction.sample_id == sample.id, Prediction.source_model.startswith('ensemble_')))
+        # Clear existing predictions from same source model
+        db.execute(delete(Prediction).where(
+            Prediction.sample_id == sample.id,
+            Prediction.source_model == source_model
+        ))
+        for b in detected_boxes:
+            pred = Prediction(
+                sample_id=sample.id,
+                label=b['label'],
+                geometry=b['geometry'],
+                confidence=b['confidence'],
+                source_model=source_model,
+                extra_data=sample.inference_state[source_model]
+            )
+            db.add(pred)
+        db.flush()
+        db.expire(sample, ['predictions'])
 
     # Step 1.5: If multiple models exist on this sample without ensemble, auto-fuse via WBF
     all_preds = list(sample.predictions)
+    if not cfg.expected_models:
+        cfg = cfg.model_copy(update={'expected_models': active_prediction_model_names(sample)})
+    all_preds = [p for p in all_preds if p.source_model in cfg.expected_models or (p.source_model or '').startswith('ensemble_')]
     ensemble_preds = [p for p in all_preds if p.source_model and p.source_model.startswith("ensemble_")]
     distinct_models = list(dict.fromkeys(p.source_model for p in all_preds if p.source_model and not p.source_model.startswith("ensemble_")))
 
-    if not ensemble_preds and len(distinct_models) >= 2:
+    if cfg.strategy == 'multi_model' and not ensemble_preds and len(distinct_models) >= 2:
         from app.services.ensemble import DetectionBox, weighted_box_fusion
         per_model: Dict[str, List[DetectionBox]] = {m: [] for m in distinct_models}
         for p in all_preds:
@@ -498,6 +487,7 @@ def audit_single_frame(
                     confidence=fb.confidence,
                     source_model="ensemble_wbf_v1",
                     extra_data={
+                        **fb.evidence,
                         "tier": fb.tier,
                         "tier_reason": fb.tier_reason,
                         "contributing_models": fb.contributing_models,
@@ -515,15 +505,22 @@ def audit_single_frame(
         for issue in sample.qc_issues
     }
 
-    raw_issues = detect_sample_qc_issues(sample.id, sample.annotations, sample.predictions, cfg)
+    raw_issues = detect_sample_qc_issues(sample.id, sample.annotations, all_preds, cfg)
 
     current_keys = set()
     active_issues = []
     for raw in raw_issues:
         key = (raw['issue_type'], raw['suggested_label'], raw['annotation_id'], raw['prediction_id'])
         current_keys.add(key)
-        if key in existing_map:
-            existing = existing_map[key]
+        existing = existing_map.get(key)
+        if existing is None:
+            existing = next((i for i in sample.qc_issues if i not in active_issues
+                and i.issue_type == raw['issue_type'] and i.suggested_label == raw['suggested_label']
+                and calculate_box_iou(i.location, raw['location']) >= cfg.iou_match_threshold), None)
+        if existing is not None:
+            current_keys.add((existing.issue_type, existing.suggested_label, existing.annotation_id, existing.prediction_id))
+            existing.annotation_id = raw['annotation_id']
+            existing.prediction_id = raw['prediction_id']
             existing.location = raw['location']
             existing.human_label = raw['human_label']
             existing.qc_score = raw['qc_score']
@@ -538,13 +535,18 @@ def audit_single_frame(
     # Delete unreviewed pending issues that are no longer detected
     for key, existing in list(existing_map.items()):
         if key not in current_keys and existing.status == 'PENDING':
+            from app.models import IssueReviewEvent
+            db.add(IssueReviewEvent(sample_id=sample.id, issue_id=existing.id,
+                    previous_status=existing.status, status='SUPERSEDED',
+                    reviewer_note='Candidate no longer detected after re-audit', evidence_snapshot=existing.evidence or {}))
             db.delete(existing)
             if existing in sample.qc_issues:
                 sample.qc_issues.remove(existing)
 
     db.flush()
 
-    sample_score, severity = compute_sample_qc_score(active_issues)
+    pending_active = [i for i in active_issues if i.status == 'PENDING']
+    sample_score, severity = compute_sample_qc_score(pending_active)
     if commit:
         db.commit()
         if sample.dataset_id:
@@ -572,9 +574,9 @@ def audit_single_frame(
         'cvat_url': curl,
         'qc_score': sample_score,
         'severity': severity,
-        'missing_count': sum(1 for i in active_issues if i.issue_type == 'MISSING_OBJECT'),
-        'wrong_class_count': sum(1 for i in active_issues if i.issue_type == 'WRONG_CLASS'),
-        'total_issues': len(active_issues),
+        'missing_count': sum(1 for i in pending_active if i.issue_type == 'MISSING_OBJECT'),
+        'wrong_class_count': sum(1 for i in pending_active if i.issue_type == 'WRONG_CLASS'),
+        'total_issues': len(pending_active),
         'issues': [
             {
                 'id': i.id,
@@ -595,6 +597,40 @@ def audit_single_frame(
             for i in active_issues
         ]
     }
+
+def processing_state(sample):
+    states = sample.inference_state or {}
+    if any(v.get('status') == 'ERROR' for v in states.values()):
+        return 'ERROR'
+    return 'PROCESSED' if sample.predictions or states else 'NOT_RUN'
+
+
+def active_prediction_model_names(sample):
+    states = sample.inference_state or {}
+    inactive = {name for name, state in states.items() if state.get('active') is False}
+    names = {p.source_model for p in sample.predictions if p.source_model and not p.source_model.startswith('ensemble_')}
+    names.update(name for name in states if not name.startswith('ensemble_'))
+    real = {name for name in names if not name.startswith('synthetic')}
+    if real:
+        names = real
+    if any(name.startswith('yolo26') and name not in inactive for name in names):
+        inactive.update(name for name in names if name.startswith('yolov8'))
+    return sorted(names - inactive)
+
+
+def has_yolo_predictions(sample, model_name):
+    state = (sample.inference_state or {}).get(model_name, {})
+    if state.get('active') is False or state.get('status') == 'ERROR':
+        return False
+    return any(p.source_model == model_name for p in sample.predictions) or state.get('status') in ('SUCCESS', 'IMPORTED')
+
+
+def coverage_summary(samples):
+    states = [processing_state(s) for s in samples]
+    return {'processed_samples_count': states.count('PROCESSED'),
+            'inference_error_samples_count': states.count('ERROR'),
+            'unprocessed_samples_count': states.count('NOT_RUN')}
+
 
 def run_dataset_qc_audit(db: Session, dataset_id: int, config: Optional[QCConfig] = None) -> Dict[str, Any]:
     """
@@ -637,11 +673,12 @@ def run_dataset_qc_audit(db: Session, dataset_id: int, config: Optional[QCConfig
 
     sample_summaries.sort(key=lambda s: (-s['qc_score'], s['sample_id']))
 
-    clean_samples = total_samples - flagged_samples
+    clean_samples = sum(processing_state(s) == 'PROCESSED' and not any(i.status == 'PENDING' for i in s.qc_issues) for s in samples)
     workload_reduction = (clean_samples / total_samples * 100.0) if total_samples > 0 else 0.0
 
     report = {
         'dataset_id': dataset_id,
+        **coverage_summary(samples),
         'total_samples': total_samples,
         'flagged_samples_count': flagged_samples,
         'clean_samples_count': clean_samples,
@@ -695,7 +732,7 @@ def get_dataset_qc_report(db: Session, dataset_id: int, force_refresh: bool = Fa
     samples = db.scalars(
         select(Sample)
         .where(Sample.dataset_id == dataset_id)
-        .options(selectinload(Sample.qc_issues))
+        .options(selectinload(Sample.qc_issues), selectinload(Sample.predictions))
     ).all()
 
     total_samples = len(samples)
@@ -707,15 +744,16 @@ def get_dataset_qc_report(db: Session, dataset_id: int, force_refresh: bool = Fa
 
     for s in samples:
         issues = list(s.qc_issues)
-        missing_count = sum(1 for i in issues if i.issue_type == 'MISSING_OBJECT')
-        wrong_count = sum(1 for i in issues if i.issue_type == 'WRONG_CLASS')
-        tot = len(issues)
+        pending = [i for i in issues if i.status == 'PENDING']
+        missing_count = sum(1 for i in pending if i.issue_type == 'MISSING_OBJECT')
+        wrong_count = sum(1 for i in pending if i.issue_type == 'WRONG_CLASS')
+        tot = len(pending)
         if tot > 0:
             flagged_samples += 1
         total_missing += missing_count
         total_wrong += wrong_count
 
-        score, sev = compute_sample_qc_score(issues)
+        score, sev = compute_sample_qc_score(pending)
         severity_breakdown[sev] += 1
 
         fnum = s.frame_number if s.frame_number is not None else extract_frame_number(s.file_name, s.id - 1)
@@ -759,11 +797,12 @@ def get_dataset_qc_report(db: Session, dataset_id: int, force_refresh: bool = Fa
         })
 
     sample_summaries.sort(key=lambda s: (-s['qc_score'], s['sample_id']))
-    clean_samples = total_samples - flagged_samples
+    clean_samples = sum(processing_state(s) == 'PROCESSED' and not any(i.status == 'PENDING' for i in s.qc_issues) for s in samples)
     workload_reduction = (clean_samples / total_samples * 100.0) if total_samples > 0 else 0.0
 
     report = {
         'dataset_id': dataset_id,
+        **coverage_summary(samples),
         'total_samples': total_samples,
         'flagged_samples_count': flagged_samples,
         'clean_samples_count': clean_samples,
@@ -788,7 +827,7 @@ class FrameAuditQueueManager:
     Allows frontend to poll or stream real-time progress without blocking the server.
     """
     _instance = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()
 
     def __new__(cls):
         with cls._lock:
@@ -828,8 +867,10 @@ class FrameAuditQueueManager:
         dataset_id: int,
         sample_ids: Optional[List[int]] = None,
         conf_thresh: float = 0.35,
-        force_repredict: bool = False
+        force_repredict: bool = False,
+        model_name: str = 'yolo26n'
     ) -> Dict[str, Any]:
+        model_name = resolve_yolo_model(model_name)
         with self._lock:
             if dataset_id in self._threads and self._threads[dataset_id].is_alive():
                 return self.get_status(dataset_id)
@@ -860,7 +901,7 @@ class FrameAuditQueueManager:
 
             thread = threading.Thread(
                 target=self._worker_loop,
-                args=(dataset_id, target_ids, conf_thresh, force_repredict, stop_event),
+                args=(dataset_id, target_ids, conf_thresh, force_repredict, stop_event, model_name),
                 daemon=True
             )
             self._threads[dataset_id] = thread
@@ -874,7 +915,8 @@ class FrameAuditQueueManager:
         target_ids: List[int],
         conf_thresh: float,
         force_repredict: bool,
-        stop_event: threading.Event
+        stop_event: threading.Event,
+        model_name: str = 'yolo26n'
     ):
         processed = 0
         flagged = 0
@@ -900,7 +942,8 @@ class FrameAuditQueueManager:
                             self._queues[dataset_id]['current_frame_name'] = sname
 
                     summary = audit_single_frame(
-                        db, sid, run_detector=force_repredict or not sample.predictions, conf_thresh=conf_thresh
+                        db, sid, run_detector=force_repredict or not has_yolo_predictions(sample, model_name),
+                        conf_thresh=conf_thresh, model_name=model_name
                     )
 
                     processed += 1
@@ -949,7 +992,7 @@ def fetch_annotations_from_cvat_api(
     import urllib.request
     import json
 
-    pat = token or dataset.cvat_token or os.getenv('CVAT_TOKEN') or 'ISQjKy3C.KDdn6nz1T65dB0A0s1yhb2ZWIQVcSDAO'
+    pat = token or dataset.cvat_token or os.getenv('CVAT_TOKEN') or ''
     base_url = (dataset.cvat_base_url or 'http://localhost:8080').rstrip('/')
     task_id = dataset.cvat_task_id
     job_id = dataset.cvat_job_id
@@ -971,8 +1014,8 @@ def fetch_annotations_from_cvat_api(
             with urllib.request.urlopen(job_req, timeout=10) as resp:
                 job_data = json.loads(resp.read().decode('utf-8'))
                 target_task_id = job_data.get('task_id')
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError(f'Cannot fetch CVAT job metadata: {exc}') from exc
 
     if target_task_id:
         try:
@@ -981,8 +1024,8 @@ def fetch_annotations_from_cvat_api(
                 lbl_data = json.loads(resp.read().decode('utf-8'))
                 results = lbl_data.get('results', lbl_data) if isinstance(lbl_data, dict) else lbl_data
                 labels_map = {item['id']: item['name'] for item in results}
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError(f'Cannot fetch CVAT class mapping: {exc}') from exc
 
     # 2. Fetch annotations
     endpoint = f"{base_url}/api/jobs/{job_id}/annotations" if job_id else f"{base_url}/api/tasks/{task_id}/annotations"
@@ -991,43 +1034,53 @@ def fetch_annotations_from_cvat_api(
         with urllib.request.urlopen(ann_req, timeout=20) as resp:
             ann_data = json.loads(resp.read().decode('utf-8'))
     except Exception as e:
-        print(f"[WARN] Failed to fetch annotations from CVAT API ({endpoint}): {e}")
-        return None
+        raise RuntimeError(f'CVAT annotation fetch failed: {e}') from e
 
     frames_ann: Dict[int, List[Dict[str, Any]]] = {}
+
+    if any(shape.get('type') != 'rectangle' or shape.get('rotation', 0)
+           for shape in ann_data.get('shapes', []) if not shape.get('outside')):
+        raise ValueError('Live QC sync supports unrotated rectangle annotations only')
 
     for s in ann_data.get('shapes', []):
         if s.get('outside'):
             continue
         f = s.get('frame', 0)
         pts = s.get('points', [])
-        if len(pts) >= 4:
+        if len(pts) == 4 and s.get('type', 'rectangle') == 'rectangle':
             lbl_id = s.get('label_id')
-            lbl_name = labels_map.get(lbl_id, f"label_{lbl_id}")
+            lbl_name = labels_map.get(lbl_id)
+            if lbl_name is None:
+                raise RuntimeError('CVAT shape class is not in the fetched taxonomy')
             frames_ann.setdefault(f, []).append({
                 'label': lbl_name,
                 'geometry': {'x1': float(pts[0]), 'y1': float(pts[1]), 'x2': float(pts[2]), 'y2': float(pts[3])},
-                'shape_type': s.get('type', 'rectangle'),
+                'shape_type': 'BBOX_2D',
                 'occluded': bool(s.get('occluded', False)),
                 'attributes': s.get('attributes', [])
             })
 
+    target_frames = sorted({sample.frame_number if sample.frame_number is not None else extract_frame_number(sample.file_name, sample.id - 1) for sample in dataset.samples})
     for tr in ann_data.get('tracks', []):
-        lbl_id = tr.get('label_id')
-        lbl_name = labels_map.get(lbl_id, f"label_{lbl_id}")
-        for s in tr.get('shapes', []):
-            if s.get('outside'):
+        label = labels_map.get(tr.get('label_id'))
+        if label is None:
+            raise RuntimeError('CVAT track class is not in the fetched taxonomy')
+        keyframes = sorted(tr.get('shapes', []), key=lambda shape: shape['frame'])
+        for frame in target_frames:
+            previous = [shape for shape in keyframes if shape['frame'] <= frame]
+            if not previous or previous[-1].get('outside'):
                 continue
-            f = s.get('frame', 0)
-            pts = s.get('points', [])
-            if len(pts) >= 4:
-                frames_ann.setdefault(f, []).append({
-                    'label': lbl_name,
-                    'geometry': {'x1': float(pts[0]), 'y1': float(pts[1]), 'x2': float(pts[2]), 'y2': float(pts[3])},
-                    'shape_type': s.get('type', 'rectangle'),
-                    'occluded': bool(s.get('occluded', False)),
-                    'attributes': s.get('attributes', [])
-                })
+            current = previous[-1]
+            if current.get('type') != 'rectangle' or len(current.get('points', [])) != 4 or current.get('rotation', 0):
+                raise RuntimeError('Live QC sync supports unrotated rectangle tracks only')
+            points = current['points']
+            following = next((shape for shape in keyframes if shape['frame'] > frame), None)
+            if following is not None and len(following.get('points', [])) == 4:
+                fraction = (frame - current['frame']) / (following['frame'] - current['frame'])
+                points = [start + (end - start) * fraction for start, end in zip(points, following['points'])]
+            frames_ann.setdefault(frame, []).append(dict(label=label,
+                geometry=dict(zip(('x1', 'y1', 'x2', 'y2'), map(float, points))), shape_type='BBOX_2D',
+                occluded=bool(current.get('occluded', False)), attributes={'cvat_track_id': tr.get('id')}))
 
     return frames_ann
 
@@ -1079,26 +1132,12 @@ def sync_cvat_dataset_annotations(
     else:
         # 2. Prioritize fetching live annotations directly from CVAT REST API (The System of Record)
         cvat_frames = fetch_annotations_from_cvat_api(dataset)
-        if cvat_frames:
-            for f_num, ann_list in cvat_frames.items():
-                parsed_samples.append({
-                    'file_name': f"frame_{f_num:06d}.PNG",
-                    'frame_number': f_num,
-                    'annotations': ann_list
-                })
-        else:
-            # 3. Fallback: look for latest annotation file in uploads
-            storage_key = dataset.storage_key
-            if storage_key:
-                from app.database import UPLOADS
-                ann_dir = UPLOADS / storage_key / 'annotations'
-                xml_files = list(ann_dir.rglob('*.xml'))
-                json_files = list(ann_dir.rglob('*.json'))
-                if xml_files:
-                    parsed_samples = CVATParser().parse([xml_files[0]], [])
-                elif json_files:
-                    parsed_samples = BDD100KParser().parse([json_files[0]], [])
-                parsed_samples = BDD100KParser().parse([json_files[0]], [])
+        if cvat_frames is None:
+            raise RuntimeError('Configure CVAT Task/Job and provide a token, or upload the current annotation export')
+        for sample in dataset.samples:
+            frame_num = sample.frame_number if sample.frame_number is not None else extract_frame_number(sample.file_name, sample.id - 1)
+            parsed_samples.append({'file_name': sample.file_name, 'frame_number': frame_num,
+                                   'annotations': cvat_frames.get(frame_num, [])})
 
     if not parsed_samples:
         return {
@@ -1147,34 +1186,10 @@ def sync_cvat_dataset_annotations(
             db.add(db_ann)
         db.flush()
 
-        # Re-audit frame against updated annotations
+        db.expire(sample, ['annotations'])
+        auto_resolved += resolve_verified_issues(db, sample, 'Verified against synchronized CVAT annotation')
         audit_single_frame(db, sample.id, run_detector=False, commit=False)
         updated_frames += 1
-
-        # Check which previous issues were solved
-        for old_issue in pending_issues:
-            # Check if this issue is now resolved
-            if old_issue.issue_type == 'MISSING_OBJECT':
-                # Did annotator add a box overlapping the missing object?
-                matched_now = any(
-                    calculate_box_iou(a.geometry, old_issue.location) >= 0.40
-                    for a in sample.annotations
-                )
-                if matched_now:
-                    old_issue.status = 'RESOLVED'
-                    old_issue.reviewer_note = 'Đã tự động xác nhận qua đồng bộ CVAT: Đã thêm vật thể bị sót'
-                    auto_resolved += 1
-            elif old_issue.issue_type == 'WRONG_CLASS':
-                # Did annotator fix the label?
-                matched_now = any(
-                    calculate_box_iou(a.geometry, old_issue.location) >= 0.50 and
-                    normalize_label(a.label) == normalize_label(old_issue.suggested_label)
-                    for a in sample.annotations
-                )
-                if matched_now:
-                    old_issue.status = 'RESOLVED'
-                    old_issue.reviewer_note = 'Đã tự động xác nhận qua đồng bộ CVAT: Đã sửa đúng nhãn lớp'
-                    auto_resolved += 1
 
     db.commit()
     invalidate_qc_report_cache(dataset_id)
@@ -1195,89 +1210,48 @@ def sync_cvat_dataset_annotations(
         'synced_at': datetime.now(timezone.utc).isoformat()
     }
 
-def verify_and_sync_sample_from_cvat(
-    db: Session,
-    sample_id: int,
-    config: Optional[QCConfig] = None
-) -> Dict[str, Any]:
-    """
-    Verify and sync an individual frame on-demand after reviewer fixed it in CVAT.
-    """
+def resolve_verified_issues(db, sample, note):
+    from app.models import IssueReviewEvent
+    resolved = 0
+    for issue in list(sample.qc_issues):
+        if issue.status != 'PENDING':
+            continue
+        matched = next((a for a in sample.annotations if a.shape_type == 'BBOX_2D'
+                        and calculate_box_iou(a.geometry, issue.location) >= .5
+                        and normalize_label(a.label) == normalize_label(issue.suggested_label)), None)
+        if matched:
+            db.add(IssueReviewEvent(sample_id=sample.id, issue_id=issue.id, previous_status=issue.status,
+                                   status='RESOLVED', reviewer_note=note, evidence_snapshot=issue.evidence or {}))
+            issue.status = 'RESOLVED'
+            issue.annotation_id = matched.id
+            issue.reviewer_note = note
+            resolved += 1
+    return resolved
+
+
+def verify_and_sync_sample_from_cvat(db, sample_id, config=None):
     sample = db.get(Sample, sample_id)
     if not sample:
-        raise ValueError(f"Sample #{sample_id} not found")
-
-    dataset = sample.dataset
-    if dataset:
-        try:
-            cvat_frames = fetch_annotations_from_cvat_api(dataset)
-            if cvat_frames:
-                target_frame = sample.frame_number if sample.frame_number is not None else (sample.id - 1)
-                if target_frame in cvat_frames:
-                    # Update DB annotations for this sample to match CVAT
-                    db.execute(delete(Annotation).where(Annotation.sample_id == sample.id))
-                    for ann_data in cvat_frames[target_frame]:
-                        db_ann = Annotation(
-                            sample_id=sample.id,
-                            label=ann_data['label'],
-                            shape_type=ann_data.get('shape_type', 'BBOX_2D'),
-                            geometry=ann_data['geometry'],
-                            attributes=ann_data.get('attributes', {}),
-                            occluded=ann_data.get('occluded'),
-                            source_metadata={'origin': 'cvat_live_sync'}
-                        )
-                        db.add(db_ann)
-                    db.flush()
-        except Exception as e:
-            print(f"[WARN] Failed to live-sync sample #{sample_id} from CVAT API: {e}")
-
-    # Re-audit single frame against updated annotations
+        raise ValueError(f'Sample #{sample_id} not found')
+    frames = fetch_annotations_from_cvat_api(sample.dataset)
+    if frames is None:
+        raise ValueError('CVAT Task/Job is not configured')
+    target = sample.frame_number if sample.frame_number is not None else extract_frame_number(sample.file_name, sample.id - 1)
+    db.execute(delete(Annotation).where(Annotation.sample_id == sample.id))
+    for ann in frames.get(target, []):
+        db.add(Annotation(sample_id=sample.id, label=ann['label'], shape_type='BBOX_2D',
+                          geometry=ann['geometry'], attributes=ann.get('attributes', {}),
+                          occluded=ann.get('occluded'), source_metadata={'origin': 'cvat_live_sync'}))
+    db.flush()
+    db.expire(sample, ['annotations'])
+    resolved = resolve_verified_issues(db, sample, 'Verified against current CVAT annotation')
     summary = audit_single_frame(db, sample_id, config=config, run_detector=False)
+    pending = [i for i in sample.qc_issues if i.status == 'PENDING']
+    return dict(sample_id=sample.id, frame_number=target, is_verified=not pending,
+                resolved_issues_count=resolved, remaining_issues_count=len(pending),
+                message='Current CVAT annotations synchronized; absence of warnings does not prove absence of errors.',
+                issues=summary['issues'])
 
-    pending_issues = [i for i in sample.qc_issues if i.status == 'PENDING']
-    resolved_count = 0
-
-    # Auto-resolve issues that annotator fixed on CVAT
-    for old_issue in pending_issues:
-        if old_issue.issue_type == 'MISSING_OBJECT':
-            matched_now = any(
-                calculate_box_iou(a.geometry, old_issue.location) >= 0.40
-                for a in sample.annotations
-            )
-            if matched_now:
-                old_issue.status = 'RESOLVED'
-                old_issue.reviewer_note = 'Đã tự động xác nhận qua đối soát CVAT: Đã thêm vật thể bị sót'
-                resolved_count += 1
-        elif old_issue.issue_type == 'WRONG_CLASS':
-            matched_now = any(
-                calculate_box_iou(a.geometry, old_issue.location) >= 0.50 and
-                normalize_label(a.label) == normalize_label(old_issue.suggested_label)
-                for a in sample.annotations
-            )
-            if matched_now:
-                old_issue.status = 'RESOLVED'
-                old_issue.reviewer_note = 'Đã tự động xác nhận qua đối soát CVAT: Đã sửa đúng nhãn lớp'
-                resolved_count += 1
-
-    db.commit()
-
-    remaining_issues = [i for i in sample.qc_issues if i.status == 'PENDING']
-    is_verified = (len(remaining_issues) == 0)
-    msg = (
-        "Frame đã hoàn toàn sạch lỗi (đã đồng bộ nhãn mới nhất từ CVAT)."
-        if is_verified
-        else f"Frame đã cập nhật từ CVAT, còn {len(remaining_issues)} vấn đề cần lưu ý."
-    )
-
-    return {
-        'sample_id': sample_id,
-        'frame_number': getattr(sample, 'frame_number', None),
-        'is_verified': is_verified,
-        'resolved_issues_count': resolved_count,
-        'remaining_issues_count': len(remaining_issues),
-        'message': msg,
-        'issues': summary['issues']
-    }
 
 def push_dataset_annotations_to_cvat(
     db: Session,
@@ -1305,7 +1279,7 @@ def push_dataset_annotations_to_cvat(
         raise ValueError(f"Dataset #{dataset_id} not found")
 
     base = (cvat_base_url or dataset.cvat_base_url or 'http://localhost:8080').rstrip('/')
-    pat = (token or getattr(dataset, 'cvat_token', None) or 'ISQjKy3C.KDdn6nz1T65dB0A0s1yhb2ZWIQVcSDAO').strip()
+    pat = (token or getattr(dataset, 'cvat_token', None) or '').strip()
     task_id = cvat_task_id or dataset.cvat_task_id
     job_id = cvat_job_id or dataset.cvat_job_id
 
@@ -1373,34 +1347,19 @@ def push_dataset_annotations_to_cvat(
 
     # Synonym mapping for common driving datasets (e.g. BDD100K to CVAT)
     synonyms = {
-        'car': ['vehicle', 'car', 'automobile'],
-        'truck': ['vehicle', 'truck'],
-        'bus': ['vehicle', 'bus'],
-        'vehicle': ['vehicle', 'car', 'truck'],
-        'pedestrian': ['pedestrian', 'person'],
-        'person': ['pedestrian', 'person'],
-        'rider': ['motorcyclist', 'rider', 'cyclist', 'bicycle'],
-        'motorcyclist': ['motorcyclist', 'motorcycle', 'rider'],
-        'motorcycle': ['motorcyclist', 'motorcycle', 'vehicle'],
-        'bicycle': ['motorcyclist', 'bicycle', 'vehicle'],
-        'cyclist': ['motorcyclist', 'cyclist', 'bicycle'],
-        'traffic light': ['traffic light', 'vehicle'],
-        'traffic sign': ['traffic sign', 'vehicle'],
+        'car': ['vehicle', 'automobile'], 'vehicle': ['car'],
+        'pedestrian': ['person'], 'person': ['pedestrian'],
+        'rider': ['motorcyclist', 'cyclist'], 'motorcyclist': ['rider'],
+        'motorcycle': ['motorbike'], 'motorbike': ['motorcycle'],
     }
-
     def resolve_label_id(raw_label: str) -> Optional[int]:
         c = (raw_label or '').strip().lower()
         if c in label_map:
             return label_map[c]
-        if c in synonyms:
-            for syn in synonyms[c]:
-                if syn in label_map:
-                    return label_map[syn]
-        # Partial match
-        for k, v in label_map.items():
-            if k in c or c in k:
-                return v
-        return default_label_id
+        for alias in synonyms.get(c, []):
+            if alias in label_map:
+                return label_map[alias]
+        raise ValueError(f"CVAT taxonomy has no matching class for '{raw_label}'")
 
     # Step 3: Build CVAT rectangle shapes based on target_source
     shapes = []
@@ -1446,7 +1405,10 @@ def push_dataset_annotations_to_cvat(
 
         # 2. AI Model predictions
         if target_source == 'predictions':
-            for pred in sample.predictions:
+            proposed = [p for p in sample.predictions if (p.source_model or '').startswith('ensemble_')]
+            if not proposed:
+                proposed = sample.predictions
+            for pred in proposed:
                 if not pred.geometry:
                     continue
                 lid = resolve_label_id(pred.label)
@@ -1470,11 +1432,13 @@ def push_dataset_annotations_to_cvat(
         elif target_source == 'merged':
             # Append missing objects discovered by AI model
             for issue in sample.qc_issues:
-                if issue.issue_type == 'MISSING_OBJECT' and issue.status != 'REJECTED' and issue.location:
+                if issue.issue_type == 'MISSING_OBJECT' and issue.status in ('ACCEPTED', 'RESOLVED') and issue.location:
                     lid = resolve_label_id(issue.suggested_label)
                     if lid is None:
                         continue
                     g = issue.location
+                    if any(normalize_label(a.label) == normalize_label(issue.suggested_label) and calculate_box_iou(a.geometry, g) >= .5 for a in sample.annotations if a.shape_type == 'BBOX_2D'):
+                        continue
                     x1 = round(float(g.get('x1', 0)), 1)
                     y1 = round(float(g.get('y1', 0)), 1)
                     x2 = round(float(g.get('x2', 0)), 1)
@@ -1490,6 +1454,19 @@ def push_dataset_annotations_to_cvat(
                         'attributes': []
                     })
 
+    unique_shapes = {}
+    for shape in shapes:
+        unique_shapes[(shape['frame'], shape['label_id'], tuple(shape['points']))] = shape
+    shapes = list(unique_shapes.values())
+    if mode == 'create' and shapes:
+        req = urllib.request.Request(f"{base}/api/jobs/{job_id}/annotations" if job_id else f"{base}/api/tasks/{task_id}/annotations", headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                current = json.loads(response.read().decode('utf-8'))
+            existing_keys = {(s['frame'], s['label_id'], tuple(round(float(v), 1) for v in s.get('points', []))) for s in current.get('shapes', []) if s.get('type') == 'rectangle'}
+            shapes = [s for s in shapes if (s['frame'], s['label_id'], tuple(s['points'])) not in existing_keys]
+        except Exception as exc:
+            raise RuntimeError(f'Cannot verify existing CVAT shapes before append: {exc}') from exc
     if not shapes:
         return {
             'status': 'warning',
@@ -1515,8 +1492,8 @@ def push_dataset_annotations_to_cvat(
                     existing_tracks = existing.get('tracks', [])
                     existing_tags = existing.get('tags', [])
                     existing_version = existing.get('version', 0)
-            except Exception:
-                pass
+            except Exception as exc:
+                raise RuntimeError(f'Cannot fetch existing CVAT tracks/tags before replace: {exc}') from exc
 
             payload = {
                 'shapes': shapes,
@@ -1575,6 +1552,11 @@ def ingest_predictions_data(
     if not dataset:
         raise ValueError('Dataset not found')
 
+    if not isinstance(data, list) or not source_model.strip():
+        raise ValueError('Predictions must be a list and source model must be named')
+    names = [item.get('file_name') or item.get('name') for item in data]
+    if len(set(names)) != len(names):
+        raise ValueError('Prediction frame names must be unique')
     sample_by_name = {s.file_name: s for s in dataset.samples}
     count = 0
 
@@ -1584,14 +1566,20 @@ def ingest_predictions_data(
             continue
         sample = sample_by_name.get(fname)
         if not sample:
-            matched = [s for s in dataset.samples if s.file_name.startswith(fname.split('.')[0])]
+            matched = [s for s in dataset.samples if Path(s.file_name).name == Path(fname).name]
             if len(matched) == 1:
                 sample = matched[0]
 
         if not sample:
-            continue
+            raise ValueError(f'Prediction frame does not match dataset: {fname}')
 
+        duration = item.get('inference_seconds')
+        if duration is not None and (not isinstance(duration, (int, float)) or not math.isfinite(duration) or duration < 0):
+            raise ValueError('Inference duration must be finite and nonnegative')
         preds = item.get('predictions') or item.get('labels') or []
+        sample.inference_state = activate_yolo_state(sample.inference_state, source_model, {'status': 'IMPORTED', 'checkpoint': item.get('checkpoint') or 'unspecified', 'inference_seconds': item.get('inference_seconds'), 'completed_at': datetime.now(timezone.utc).isoformat()})
+        db.execute(delete(Prediction).where(Prediction.sample_id == sample.id, Prediction.source_model == source_model))
+        db.execute(delete(Prediction).where(Prediction.sample_id == sample.id, Prediction.source_model.startswith('ensemble_')))
         for p in preds:
             label = p.get('label') or p.get('category')
             conf = float(p.get('confidence', p.get('score', 0.85)))
@@ -1613,8 +1601,13 @@ def ingest_predictions_data(
                     'y2': float(box.get('y2', 0))
                 },
                 confidence=conf,
-                source_model=source_model
+                source_model=source_model,
+                extra_data={'checkpoint': item.get('checkpoint') or 'unspecified'}
             )
+            from app.schemas.evaluation import GoldenBox
+            GoldenBox(label=db_pred.label, geometry=db_pred.geometry)
+            if not math.isfinite(conf) or not 0 <= conf <= 1:
+                raise ValueError('Prediction confidence must be finite and between 0 and 1')
             db.add(db_pred)
             count += 1
 
@@ -1634,8 +1627,12 @@ def generate_benchmark_synthetic_predictions(
     if not dataset:
         raise ValueError('Dataset not found')
 
+    if not source_model.startswith('synthetic'):
+        raise ValueError('Synthetic predictions must use a synthetic source name')
+    if any(not (p.source_model or '').startswith('synthetic') for sample in dataset.samples for p in sample.predictions):
+        raise ValueError('Use a separate sandbox dataset for synthetic experiments; real predictions are preserved')
     sample_ids = [s.id for s in dataset.samples]
-    db.execute(delete(Prediction).where(Prediction.sample_id.in_(sample_ids)))
+    db.execute(delete(Prediction).where(Prediction.sample_id.in_(sample_ids), Prediction.source_model == source_model))
 
     swap_candidates = {
         'car': 'truck',
@@ -1684,7 +1681,7 @@ def generate_benchmark_synthetic_predictions(
                     'y2': round(ann.geometry['y2'] + jitter_y, 1),
                 },
                 confidence=conf,
-                source_model=source_model
+                source_model=source_model, extra_data={'synthetic': True}
             )
             db.add(pred)
             pred_count += 1
@@ -1702,7 +1699,7 @@ def generate_benchmark_synthetic_predictions(
                     'y2': round(y1 + rng.uniform(30, 90), 1),
                 },
                 confidence=round(rng.uniform(0.80, 0.95), 3),
-                source_model=source_model
+                source_model=source_model, extra_data={'synthetic': True}
             )
             db.add(pred)
             pred_count += 1
@@ -1722,7 +1719,8 @@ def run_pretrained_detector_service(
     db: Session,
     dataset_id: int,
     conf_thresh: float = 0.45,
-    source_model: str = "yolov8n-bdd100k"
+    source_model: Optional[str] = None,
+    model_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Backward-compatible method to run detector and audit dataset.
@@ -1732,34 +1730,23 @@ def run_pretrained_detector_service(
     if not dataset:
         raise ValueError('Dataset not found')
 
+    model_name = resolve_yolo_model(model_name)
+    source_model = source_model or model_name
     pred_count = 0
     for sample in dataset.samples:
         if sample.media_path and os.path.isfile(sample.media_path):
-            boxes = detect_image_objects(sample.media_path, conf_thresh=conf_thresh)
-            if boxes:
-                db.execute(delete(Prediction).where(
-                    Prediction.sample_id == sample.id,
-                    Prediction.source_model == source_model
-                ))
-                for b in boxes:
-                    pred = Prediction(
-                        sample_id=sample.id,
-                        label=b['label'],
-                        geometry=b['geometry'],
-                        confidence=b['confidence'],
-                        source_model=source_model
-                    )
-                    db.add(pred)
-                    pred_count += 1
-
+            audit_single_frame(db, sample.id, run_detector=True, conf_thresh=conf_thresh, source_model=source_model, model_name=model_name)
+            pred_count += sum(p.source_model == source_model for p in sample.predictions)
     db.commit()
 
     if pred_count > 0:
         audit_report = run_dataset_qc_audit(db, dataset_id)
         return {
             'predictions_generated': pred_count,
-            'source': 'yolov8_inference',
+            'source': model_name + '_inference',
             'audit_summary': audit_report
         }
 
-    return generate_benchmark_synthetic_predictions(db, dataset_id, source_model=source_model)
+    audit_report = run_dataset_qc_audit(db, dataset_id)
+    return {'predictions_generated': 0, 'source': model_name + '_inference',
+            'audit_summary': audit_report, 'message': 'No detections; no synthetic predictions were generated.'}

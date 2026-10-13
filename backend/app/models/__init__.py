@@ -13,11 +13,14 @@ class Dataset(Base):
     cvat_task_id = Column(Integer, nullable=True)
     cvat_job_id = Column(Integer, nullable=True)
     cvat_base_url = Column(String, nullable=True, default='http://localhost:8080')
-    cvat_token = Column(String, nullable=True, default='ISQjKy3C.KDdn6nz1T65dB0A0s1yhb2ZWIQVcSDAO')
+    cvat_token = Column(String, nullable=True, default='')
     warnings = Column(JSON, default=list)
     revision = Column(Integer, default=1)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     samples = relationship('Sample', back_populates='dataset', cascade='all, delete-orphan')
+    benchmarks = relationship('GoldenBenchmark', cascade='all, delete-orphan')
+    evaluations = relationship('QCEvaluation', cascade='all, delete-orphan')
+    acceptance_events = relationship('AcceptanceEvent', cascade='all, delete-orphan')
 
 class Sample(Base):
     __tablename__ = 'samples'
@@ -28,11 +31,13 @@ class Sample(Base):
     height = Column(Integer, nullable=True)
     media_path = Column(String, nullable=True)
     frame_number = Column(Integer, nullable=True)
+    inference_state = Column(JSON, default=dict)
     task_type = Column(String, nullable=False)
     dataset = relationship('Dataset', back_populates='samples')
     annotations = relationship('Annotation', cascade='all, delete-orphan')
     predictions = relationship('Prediction', cascade='all, delete-orphan')
     qc_issues = relationship('QCIssue', cascade='all, delete-orphan')
+    review_events = relationship('IssueReviewEvent', cascade='all, delete-orphan')
 
 class Annotation(Base):
     __tablename__ = 'annotations'
@@ -76,3 +81,50 @@ class QCIssue(Base):
     cvat_url = Column(String, nullable=True)
     status = Column(String, default='PENDING', nullable=False)  # 'PENDING' | 'RESOLVED' / 'ACCEPTED' | 'FALSE_POSITIVE' / 'REJECTED'
     reviewer_note = Column(String, default='', nullable=False)
+
+
+class GoldenBenchmark(Base):
+    __tablename__ = 'golden_benchmarks'
+    id = Column(Integer, primary_key=True)
+    dataset_id = Column(Integer, ForeignKey('datasets.id'), nullable=False)
+    verified_by = Column(String, nullable=False)
+    notes = Column(String, default='')
+    samples = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class QCEvaluation(Base):
+    __tablename__ = 'qc_evaluations'
+    id = Column(Integer, primary_key=True)
+    dataset_id = Column(Integer, ForeignKey('datasets.id'), nullable=False)
+    benchmark_id = Column(Integer, ForeignKey('golden_benchmarks.id'), nullable=False)
+    strategy = Column(String, nullable=False)
+    config = Column(JSON, nullable=False)
+    input_snapshot = Column(JSON, nullable=False)
+    metrics = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class AcceptanceEvent(Base):
+    __tablename__ = 'acceptance_events'
+    id = Column(Integer, primary_key=True)
+    dataset_id = Column(Integer, ForeignKey('datasets.id'), nullable=False)
+    cycle = Column(Integer, nullable=False)
+    strategy = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    actor = Column(String, nullable=False)
+    reason = Column(String, default='')
+    annotation_snapshot = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class IssueReviewEvent(Base):
+    __tablename__ = 'issue_review_events'
+    id = Column(Integer, primary_key=True)
+    sample_id = Column(Integer, ForeignKey('samples.id'), nullable=False)
+    issue_id = Column(Integer, nullable=False)  # history survives issue reconciliation
+    previous_status = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    reviewer_note = Column(String, default='')
+    evidence_snapshot = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

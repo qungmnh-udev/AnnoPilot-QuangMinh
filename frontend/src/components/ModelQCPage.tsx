@@ -50,8 +50,10 @@ import {
   Zap,
 } from "lucide-react";
 import { api, json } from "../api";
+import { QCEvaluationPanel } from './QCEvaluationPanel';
 import type {
   Dataset,
+  YOLOVariant,
   Sample,
   QCAuditReport,
   QCIssue,
@@ -193,6 +195,14 @@ export function ModelQCPage({
   act: (msg: string, fn: () => Promise<void>) => Promise<void>;
   onRefreshDataset: () => Promise<void>;
 }) {
+  const [selectedYoloModel, setSelectedYoloModel] = useState<YOLOVariant>(() => {
+    try { return localStorage.getItem('annopilot.yolo-variant') === 'yolo26s' ? 'yolo26s' : 'yolo26n'; }
+    catch { return 'yolo26n'; }
+  });
+  const selectYoloModel = (variant: YOLOVariant) => {
+    setSelectedYoloModel(variant);
+    try { localStorage.setItem('annopilot.yolo-variant', variant); } catch {}
+  };
   const [report, setReport] = useState<QCAuditReport | null>(null);
   const [queue, setQueue] = useState<Sample[]>([]);
   const [selectedSample, setSelectedSample] = useState<Sample | null>(null);
@@ -223,7 +233,10 @@ export function ModelQCPage({
   const [benchmarkWrongRatio, setBenchmarkWrongRatio] = useState<number>(0.15);
 
   const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
-  const [uploadSourceModel, setUploadSourceModel] = useState<string>("yolov8-bdd100k");
+  const [uploadSourceModel, setUploadSourceModel] = useState<string>("yolo26n");
+  useEffect(() => {
+    setUploadSourceModel(current => ['yolo26n', 'yolo26s'].includes(current) ? selectedYoloModel : current);
+  }, [selectedYoloModel]);
 
   // CVAT Integration & Architecture Modal states
   const [showArchModal, setShowArchModal] = useState<boolean>(false);
@@ -231,13 +244,13 @@ export function ModelQCPage({
   const [cvatBaseUrl, setCvatBaseUrl] = useState<string>(dataset.cvat_base_url || "http://localhost:8080");
   const [cvatTaskId, setCvatTaskId] = useState<string>(dataset.cvat_task_id ? String(dataset.cvat_task_id) : "");
   const [cvatJobId, setCvatJobId] = useState<string>(dataset.cvat_job_id ? String(dataset.cvat_job_id) : "");
-  const [cvatToken, setCvatToken] = useState<string>(dataset.cvat_token || "ISQjKy3C.KDdn6nz1T65dB0A0s1yhb2ZWIQVcSDAO");
+  const [cvatToken, setCvatToken] = useState<string>(dataset.cvat_token || "");
 
   useEffect(() => {
     setCvatBaseUrl(dataset.cvat_base_url || "http://localhost:8080");
     setCvatTaskId(dataset.cvat_task_id ? String(dataset.cvat_task_id) : "");
     setCvatJobId(dataset.cvat_job_id ? String(dataset.cvat_job_id) : "");
-    setCvatToken(dataset.cvat_token || "ISQjKy3C.KDdn6nz1T65dB0A0s1yhb2ZWIQVcSDAO");
+    setCvatToken(dataset.cvat_token || "");
   }, [dataset]);
 
   // Incremental Streaming Queue & CVAT Two-Way Sync states (P0)
@@ -265,11 +278,7 @@ export function ModelQCPage({
   const [newModelName, setNewModelName] = useState<string>("");
   const [runningTriad, setRunningTriad] = useState<boolean>(false);
   const [triadLimit, setTriadLimit] = useState<number | null>(null);
-  const [triadModels, setTriadModels] = useState<string[]>([
-    "yolov8n",
-    "fasterrcnn_mobilenet_v3",
-    "rtdetr_l",
-  ]);
+  const triadModels = useMemo(() => [selectedYoloModel, 'fasterrcnn_mobilenet_v3', 'rtdetr_l'], [selectedYoloModel]);
 
   // More tools menu dropdown state
   const [showMoreToolsMenu, setShowMoreToolsMenu] = useState<boolean>(false);
@@ -312,6 +321,22 @@ export function ModelQCPage({
       if (timer) clearInterval(timer);
     };
   }, [isQueueRunning, dataset.id]);
+
+  // Multi-model inference commits QC per frame; expose those results while it runs.
+  useEffect(() => {
+    if (!runningTriad) return;
+    let active = true;
+    const timer = setInterval(async () => {
+      try {
+        const [liveReport, liveQueue] = await Promise.all([
+          api<QCAuditReport>(`/datasets/${dataset.id}/qc/report`),
+          api<Sample[]>(`/datasets/${dataset.id}/qc/queue?include_clean=true`),
+        ]);
+        if (active) { setReport(liveReport); setQueue(liveQueue); }
+      } catch { /* The final inference response reports errors; polling retries. */ }
+    }, 1500);
+    return () => { active = false; clearInterval(timer); };
+  }, [runningTriad, dataset.id]);
 
   // Sidebar collapse state
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
@@ -511,7 +536,7 @@ export function ModelQCPage({
   const handleRunDetector = () => {
     void act("Running Pretrained Detector & Audit…", async () => {
       try {
-        await api(`/datasets/${dataset.id}/qc/detect`, { method: "POST" });
+        await api(`/datasets/${dataset.id}/qc/detect?model_name=${selectedYoloModel}`, { method: "POST" });
         await loadQCData();
         await onRefreshDataset();
       } catch (err: any) {
@@ -528,6 +553,7 @@ export function ModelQCPage({
           `/datasets/${dataset.id}/qc/queue/start`,
           json("POST", {
             conf_thresh: 0.35,
+            model_name: selectedYoloModel,
             force_repredict: forceRepredict,
           })
         );
@@ -556,7 +582,7 @@ export function ModelQCPage({
     setAuditingFrameId(sampleId);
     void act("Đang kiểm tra chi tiết frame…", async () => {
       try {
-        await api(`/datasets/${dataset.id}/qc/frame/${sampleId}/audit?force_repredict=true`, { method: "POST" });
+        await api(`/datasets/${dataset.id}/qc/frame/${sampleId}/audit?force_repredict=true&model_name=${selectedYoloModel}`, { method: "POST" });
         await refreshCurrentSample(sampleId);
         await loadQCData();
       } catch (err: any) {
@@ -719,8 +745,8 @@ export function ModelQCPage({
       try {
         const data = await api<DatasetModelsResponse>(`/datasets/${dataset.id}/ensemble/models`);
         setAvailableModelsData(data);
-        const nonEnsemble = data.models.filter((m) => !m.startsWith("ensemble_"));
-        setSelectedEnsembleModels(nonEnsemble.length > 0 ? nonEnsemble : data.models);
+        const nonEnsemble = (data.active_models || data.models).filter((m) => !m.startsWith("ensemble_") && !m.startsWith('synthetic'));
+        setSelectedEnsembleModels(nonEnsemble);
         const weights: Record<string, number> = {};
         for (const m of data.models) {
           weights[m] = 1.0;
@@ -789,7 +815,7 @@ export function ModelQCPage({
         // Reload model list
         const modelsData = await api<DatasetModelsResponse>(`/datasets/${dataset.id}/ensemble/models`);
         setAvailableModelsData(modelsData);
-        setSelectedEnsembleModels(modelsData.models.filter((m) => !m.startsWith("ensemble_")));
+        setSelectedEnsembleModels((modelsData.active_models || modelsData.models).filter((m) => !m.startsWith("ensemble_") && !m.startsWith('synthetic')));
         await onRefreshDataset();
         await loadQCData();
       } catch (err: any) {
@@ -798,18 +824,18 @@ export function ModelQCPage({
     });
   };
 
-  // Run Option B Triad Ensemble (YOLOv8n + Faster R-CNN + RT-DETR)
+  // Run Option B Triad Ensemble (YOLO26n + Faster R-CNN + RT-DETR)
   const handleRunTriadEnsemble = async (customLimit?: number | null) => {
     setRunningTriad(true);
     const limitToUse = customLimit !== undefined ? customLimit : triadLimit;
-    void act("Đang chạy inference Bộ 3 Mô hình Phương án B (YOLOv8 + Faster R-CNN + RT-DETR)...", async () => {
+    void act("Đang chạy inference Bộ 3 Mô hình Phương án B (YOLO26 + Faster R-CNN + RT-DETR)...", async () => {
       try {
         const res = await api<TriadRunResponse>(`/datasets/${dataset.id}/ensemble/run-triad`, {
           method: "POST",
           body: JSON.stringify({
             models: triadModels,
             weights: {
-              yolov8n: modelWeights["yolov8n"] ?? 1.0,
+              [selectedYoloModel]: modelWeights[selectedYoloModel] ?? 1.0,
               fasterrcnn_mobilenet_v3: modelWeights["fasterrcnn_mobilenet_v3"] ?? 1.0,
               rtdetr_l: modelWeights["rtdetr_l"] ?? 1.2,
             },
@@ -822,16 +848,17 @@ export function ModelQCPage({
         if (res.ensemble_result) {
           setEnsembleResult(res.ensemble_result);
         }
+        if (!res.success) setError(`Inference chưa đầy đủ: ${res.skipped_frames?.length || 0} frame thiếu media.`);
         const modelsData = await api<DatasetModelsResponse>(`/datasets/${dataset.id}/ensemble/models`);
         setAvailableModelsData(modelsData);
-        setSelectedEnsembleModels(modelsData.models.filter((m) => !m.startsWith("ensemble_")));
+        setSelectedEnsembleModels((modelsData.active_models || modelsData.models).filter((m) => !m.startsWith("ensemble_") && !m.startsWith('synthetic')));
         await onRefreshDataset();
         await loadQCData();
         alert(
           `🎉 Hoàn tất Phương án B!\n` +
           `• Frames đã xử lý: ${res.frames_processed}\n` +
           `• Tổng số dự đoán: ${res.total_predictions.toLocaleString()} boxes\n` +
-          `  - YOLOv8n (1-Stage): ${res.model_counts?.yolov8n || 0}\n` +
+          `  - ${selectedYoloModel.toUpperCase()} (1-Stage): ${res.model_counts?.[selectedYoloModel] || 0}\n` +
           `  - Faster R-CNN (2-Stage): ${res.model_counts?.fasterrcnn_mobilenet_v3 || 0}\n` +
           `  - RT-DETR-l (Transformer): ${res.model_counts?.rtdetr_l || 0}\n` +
           `• Pre-labels đồng thuận WBF: ${res.ensemble_result?.total_fused_predictions || 0} boxes!`
@@ -968,8 +995,9 @@ export function ModelQCPage({
     // Auto mode: prioritize ensemble models first
     const ensembleModel = sampleModels.find((m) => m.startsWith("ensemble_"));
     if (ensembleModel) return ensembleModel;
+    if (sampleModels.includes(selectedYoloModel)) return selectedYoloModel;
     return sampleModels[0] || "all";
-  }, [selectedPredModelFilter, sampleModels]);
+  }, [selectedPredModelFilter, sampleModels, selectedYoloModel]);
 
   const displayedPredictions = useMemo(() => {
     if (!selectedSample?.predictions) return [];
@@ -999,6 +1027,15 @@ export function ModelQCPage({
         </div>
 
         <div className="qc-actions-bar">
+          <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+            YOLO
+            <select aria-label="Chọn biến thể YOLO26" value={selectedYoloModel}
+              disabled={busy || isQueueRunning || runningTriad}
+              onChange={e => selectYoloModel(e.target.value as YOLOVariant)}>
+              <option value="yolo26n">YOLO26n · nano</option>
+              <option value="yolo26s">YOLO26s · small</option>
+            </select>
+          </label>
           {/* Action 1: Chạy Streaming Queue (Primary) */}
           <button
             className="primary btn-streaming-start"
@@ -1298,13 +1335,19 @@ export function ModelQCPage({
         </div>
       )}
 
+      <QCEvaluationPanel key={dataset.id} datasetId={dataset.id} />
+      {report && ((report.unprocessed_samples_count || 0) > 0 || (report.inference_error_samples_count || 0) > 0) && (
+        <p role="status" className="card text-warning" style={{ padding: '1rem' }}>
+          Độ phủ chưa đầy đủ: {report.unprocessed_samples_count || 0} frame chưa inference/import prediction; {report.inference_error_samples_count || 0} frame có lỗi inference. Không dùng các frame này để kết luận chất lượng.
+        </p>
+      )}
       {/* KPI Metrics Dashboard Cards */}
       {report && (
         <div className="grid four qc-kpi-grid">
           {/* Workload Reduction */}
           <div className="card qc-kpi-card highlight-kpi">
             <div className="qc-kpi-top">
-              <span className="qc-kpi-label">Workload Reduction</span>
+              <span className="qc-kpi-label">Frame không có cảnh báo</span>
               <TrendingDown size={20} className="text-success" />
             </div>
             <div className="qc-kpi-value">
@@ -1317,7 +1360,7 @@ export function ModelQCPage({
               />
             </div>
             <p className="qc-kpi-note">
-              <strong>{report.clean_samples_count}</strong> / {report.total_samples} ảnh sạch được miễn kiểm tra thủ công.
+              <strong>{report.clean_samples_count}</strong> / {report.total_samples} frame không có cảnh báo. Chưa chứng minh nhãn đúng hoặc công review đã giảm.
             </p>
           </div>
 
@@ -1482,7 +1525,7 @@ export function ModelQCPage({
                           Score: {(item.qc_score || 0).toFixed(3)}
                         </span>
                         <span className={`badge ${item.qc_severity ? item.qc_severity.toLowerCase() : "clean"}`}>
-                          {item.qc_severity || "CLEAN"}
+                          {item.qc_processing_state === 'ERROR' ? 'Lỗi inference' : item.qc_processing_state === 'NOT_RUN' ? 'Chưa inference' : item.qc_severity === 'CLEAN' ? 'Không có cảnh báo' : item.qc_severity}
                         </span>
                       </div>
 
@@ -2024,7 +2067,7 @@ export function ModelQCPage({
                 {(() => {
                   const pendingIssues = selectedSample.qc_issues?.filter((i) => i.status === "PENDING") || [];
                   const tier1Issues = pendingIssues.filter(
-                    (i) => i.evidence?.consensus_tier === 1 || (i.evidence?.num_models_agreed && i.evidence.num_models_agreed >= 2)
+                    (i) => i.evidence?.consensus_tier === 1
                   );
                   if (tier1Issues.length === 0) return null;
 
@@ -2051,10 +2094,10 @@ export function ModelQCPage({
                         </div>
                         <div>
                           <div style={{ fontWeight: 700, color: "#f3e8ff", fontSize: "0.95rem" }}>
-                            Tự động hoá Multi-Model: Có {tier1Issues.length} / {pendingIssues.length} nghi vấn đạt đồng thuận cao (Tier 1)
+                            Có {tier1Issues.length} / {pendingIssues.length} nghi vấn đồng thuận cao (Tier 1)
                           </div>
                           <div style={{ fontSize: "0.82rem", color: "#d8b4fe", marginTop: "2px" }}>
-                            Các mô hình độc lập (YOLOv8, Faster R-CNN, RT-DETR) cùng phát hiện nhất quán. Áp dụng ngay với 1-Click để bỏ qua thao tác thủ công từng mục!
+                            Đồng thuận chỉ là tín hiệu ưu tiên. Reviewer cần kiểm tra bằng chứng trước khi chấp nhận các gợi ý.
                           </div>
                         </div>
                       </div>
@@ -2077,10 +2120,10 @@ export function ModelQCPage({
                         }}
                         disabled={busy}
                         onClick={() => handleBatchResolveConsensus(1)}
-                        title="Tự động chấp nhận toàn bộ các bất đồng có đồng thuận cao giữa các model trên frame này"
+                        title="Áp dụng các gợi ý Tier 1 sau khi reviewer đã kiểm tra"
                       >
                         <Zap size={15} />
-                        <span>1-Click: Áp dụng toàn bộ đồng thuận ({tier1Issues.length})</span>
+                        <span>Đã kiểm tra: chấp nhận gợi ý ({tier1Issues.length})</span>
                       </button>
                     </div>
                   );
@@ -2116,7 +2159,7 @@ export function ModelQCPage({
                     <div>
                       <h4>Frame hoàn toàn đồng thuận (Clean)</h4>
                       <p className="muted">
-                        Dự đoán của model và nhãn người gán khớp chính xác với nhau. Frame này được tự động nghiệm thu mà không cần review lại.
+                        Chưa có cảnh báo trên frame này. Kiểm tra trạng thái inference và kiểm toán độc lập trước khi kết luận chất lượng nhãn.
                       </p>
                     </div>
                   </div>
@@ -2250,6 +2293,16 @@ export function ModelQCPage({
                             <HelpCircle size={15} />
                             <span>{issue.evidence.reason}</span>
                           </div>
+                          {issue.evidence.per_model_predictions?.length > 0 && (
+                            <details className="qc-model-evidence">
+                              <summary>Bằng chứng từng model · {issue.evidence.detection_count ?? issue.evidence.contributing_models?.length} model phát hiện</summary>
+                              {issue.evidence.per_model_predictions.map((p: any, index: number) => (
+                                <p key={index}><strong>{p.model_id}</strong>: {p.label} · confidence {(p.confidence * 100).toFixed(1)}% · box [{p.geometry.x1}, {p.geometry.y1}, {p.geometry.x2}, {p.geometry.y2}]</p>
+                              ))}
+                              {!!issue.evidence.absent_models?.length && <p>Không có detection tương ứng: {issue.evidence.absent_models.join(', ')}</p>}
+                              <p className="muted">Confidence chưa calibration; đồng thuận không thay thế xác minh của reviewer.</p>
+                            </details>
+                          )}
 
                           {/* Actions Bar */}
                           <div className="qc-issue-actions">
@@ -2439,7 +2492,7 @@ export function ModelQCPage({
             </div>
 
             <p className="muted">
-              Nạp kết quả dự đoán từ YOLOv8, Faster R-CNN hoặc bất kỳ detector nào theo định dạng JSON chuẩn BDD100K.
+              Nạp kết quả dự đoán từ YOLO26, Faster R-CNN hoặc bất kỳ detector nào theo định dạng JSON chuẩn BDD100K.
             </p>
 
             <form onSubmit={handleUploadPredictions}>
@@ -2542,7 +2595,7 @@ export function ModelQCPage({
                   <span>CVAT Personal Access Token (PAT):</span>
                   <input
                     type="password"
-                    placeholder="ISQjKy3C.KDdn6nz1T65dB0A0s1yhb2ZWIQVcSDAO"
+                    placeholder=""
                     value={cvatToken}
                     onChange={(e) => setCvatToken(e.target.value)}
                   />
@@ -2677,7 +2730,7 @@ export function ModelQCPage({
                 <div className="arch-tier-grid">
                   <div className="arch-sub-box">
                     <strong>Overview & Workload Reduction</strong>
-                    <p>Đo lường % ảnh sạch được nghiệm thu tự động</p>
+                    <p>Thống kê frame không có cảnh báo; chất lượng cần kiểm chứng độc lập</p>
                   </div>
                   <div className="arch-sub-box">
                     <strong>Prioritized Review Queue</strong>
@@ -2900,7 +2953,7 @@ export function ModelQCPage({
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", fontSize: "0.82rem" }}>
                 <div style={{ background: "rgba(34, 197, 94, 0.1)", border: "1px solid rgba(34, 197, 94, 0.3)", borderRadius: "8px", padding: "0.6rem" }}>
                   <div style={{ fontWeight: 700, color: "#86efac", marginBottom: "4px" }}>🎯 Tier 1: Đồng thuận cao</div>
-                  <div style={{ color: "#dcfce7", lineHeight: "1.3" }}>Các model cùng dự đoán 1 nhãn với IoU & conf cao → <strong>Tự động chấp nhận pre-label</strong>.</div>
+                  <div style={{ color: "#dcfce7", lineHeight: "1.3" }}>Các model cùng nhãn với IoU & conf cao → <strong>Đề xuất pre-label, cần xác minh</strong>.</div>
                 </div>
                 <div style={{ background: "rgba(245, 158, 11, 0.1)", border: "1px solid rgba(245, 158, 11, 0.3)", borderRadius: "8px", padding: "0.6rem" }}>
                   <div style={{ fontWeight: 700, color: "#fcd34d", marginBottom: "4px" }}>⚠️ Tier 2: Bất đồng nhãn</div>
@@ -2908,7 +2961,7 @@ export function ModelQCPage({
                 </div>
                 <div style={{ background: "rgba(56, 189, 248, 0.1)", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "8px", padding: "0.6rem" }}>
                   <div style={{ fontWeight: 700, color: "#7dd3fc", marginBottom: "4px" }}>🔍 Tier 3: Lệch model</div>
-                  <div style={{ color: "#e0f2fe", lineHeight: "1.3" }}>Chỉ 1 model phát hiện vật thể → <strong>Đẩy vào hàng đợi QC kiểm tra</strong>.</div>
+                  <div style={{ color: "#e0f2fe", lineHeight: "1.3" }}>Một model phát hiện hoặc đồng thuận chưa đạt ngưỡng → <strong>Kiểm tra bằng chứng</strong>.</div>
                 </div>
               </div>
             </div>
@@ -2960,9 +3013,9 @@ export function ModelQCPage({
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.6rem", fontSize: "0.8rem" }}>
                 <div style={{ background: "rgba(0, 0, 0, 0.25)", borderRadius: "6px", padding: "0.55rem 0.75rem", border: "1px solid rgba(168, 85, 247, 0.2)" }}>
                   <div style={{ fontWeight: 600, color: "#e9d5ff", display: "flex", alignItems: "center", gap: "4px" }}>
-                    ⚡ M1: YOLOv8n
+                    ⚡ M1: {selectedYoloModel.toUpperCase()}
                   </div>
-                  <div style={{ color: "var(--muted)", fontSize: "0.75rem", marginTop: "2px" }}>CNN 1-Stage · TAL Assigner · Trọng số 1.0</div>
+                  <div style={{ color: "var(--muted)", fontSize: "0.75rem", marginTop: "2px" }}>CNN 1-Stage · YOLO26 · Trọng số 1.0</div>
                 </div>
                 <div style={{ background: "rgba(0, 0, 0, 0.25)", borderRadius: "6px", padding: "0.55rem 0.75rem", border: "1px solid rgba(59, 130, 246, 0.2)" }}>
                   <div style={{ fontWeight: 600, color: "#93c5fd", display: "flex", alignItems: "center", gap: "4px" }}>
@@ -3112,7 +3165,7 @@ export function ModelQCPage({
                       value={ensembleHighConsensusConf}
                       onChange={(e) => setEnsembleHighConsensusConf(parseFloat(e.target.value) || 0.85)}
                     />
-                    <small className="muted">Độ tin cậy để xếp vào Tier 1 Auto-accept (Mặc định 0.85)</small>
+                    <small className="muted">Ngưỡng confidence cho Tier 1; không phải xác suất nhãn đúng (mặc định 0.85)</small>
                   </label>
                 </div>
               </div>

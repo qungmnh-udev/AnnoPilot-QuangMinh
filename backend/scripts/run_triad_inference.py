@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 CLI Tool for Option B Triad Inference & Ensemble
-M1: YOLOv8n (1-Stage CNN)
+M1: YOLO26n or YOLO26s (1-Stage CNN)
 M2: Faster R-CNN MobileNetV3 (2-Stage CNN)
 M3: RT-DETR-l (Vision Transformer)
 
@@ -29,13 +29,13 @@ def main():
     parser.add_argument("--conf", type=float, default=0.35, help="Confidence threshold (default: 0.35)")
     parser.add_argument("--iou", type=float, default=0.55, help="IoU clustering threshold for WBF (default: 0.55)")
     parser.add_argument("--no-ensemble", action="store_true", help="Do not run WBF ensemble automatically")
-    parser.add_argument("--models", nargs="+", default=["yolov8n", "fasterrcnn_mobilenet_v3", "rtdetr_l"],
-                        help="List of models to run (default: yolov8n fasterrcnn_mobilenet_v3 rtdetr_l)")
+    parser.add_argument("--models", nargs="+", choices=list(TRIAD_SPECS), default=["yolo26n", "fasterrcnn_mobilenet_v3", "rtdetr_l"],
+                        help="List of models to run (default: yolo26n fasterrcnn_mobilenet_v3 rtdetr_l)")
     args = parser.parse_args()
 
     print("=" * 70)
     print("   ANNO-PILOT: OPTION B TRIAD MULTI-MODEL INFERENCE")
-    print("   M1: YOLOv8n (1-Stage CNN)")
+    print("   M1: YOLO26n or YOLO26s (1-Stage CNN)")
     print("   M2: Faster R-CNN MobileNetV3 (2-Stage CNN)")
     print("   M3: RT-DETR-l (Vision Transformer)")
     print("=" * 70)
@@ -71,7 +71,7 @@ def main():
             print("\nWBF TRI-TIER CONSENSUS:")
             print(f"  Fused Boxes  : {ens.get('total_fused_predictions', 0)}")
             tb = ens.get("tier_breakdown", {})
-            print(f"    * Tier 1 (High Consensus)    : {tb.get('tier_1_high_consensus', 0)} (Auto-accept)")
+            print(f"    * Tier 1 (High Consensus)    : {tb.get('tier_1_high_consensus', 0)} (Reviewer verification)")
             print(f"    * Tier 2 (Class Disagree)    : {tb.get('tier_2_class_disagreement', 0)} (1-Click review)")
             print(f"    * Tier 3 (Model Divergence)  : {tb.get('tier_3_model_divergence', 0)} (QC queue)")
         print("\nAll predictions are now saved and ready in AnnoPilot QC!")

@@ -10,10 +10,11 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from app.database import get_db, UPLOADS
-from app.models import Dataset, Sample, Annotation, Prediction, QCIssue, Settings
+from app.models import Dataset, Sample, Annotation, Prediction, QCIssue, Settings, IssueReviewEvent
 from app.schemas import ScoringSettings
 from app.schemas.qc import (
     QCConfig,
+    YOLOVariant,
     IngestPredictionsRequest,
     QCIssueResolveRequest,
     QCBatchResolveRequest,
@@ -37,6 +38,7 @@ from app.services.qc_engine import (
     get_dataset_qc_report,
     invalidate_qc_report_cache,
     audit_single_frame,
+    has_yolo_predictions,
     queue_manager,
     sync_cvat_dataset_annotations,
     verify_and_sync_sample_from_cvat,
@@ -67,6 +69,14 @@ def require(db, model, id):
 @router.get('/health')
 def health():
     return {'status': 'ok', 'application': 'AnnoPilot-ModelQC'}
+
+
+@router.get('/samples/{sample_id}/qc/review-history')
+def review_history(sample_id: int, db: Session = Depends(get_db)):
+    sample = require(db, Sample, sample_id)
+    return [dict(id=e.id, issue_id=e.issue_id, previous_status=e.previous_status,
+                 status=e.status, reviewer_note=e.reviewer_note, evidence=e.evidence_snapshot,
+                 created_at=e.created_at.isoformat()) for e in sample.review_events]
 
 @router.get('/datasets')
 def datasets(db: Session = Depends(get_db)):
@@ -189,7 +199,11 @@ def ingest_predictions_json(
 ):
     require(db, Dataset, id)
     data = [p.model_dump() for p in payload.predictions]
-    count = ingest_predictions_data(db, id, data, payload.source_model or 'pretrained')
+    try:
+        count = ingest_predictions_data(db, id, data, payload.source_model or 'pretrained')
+    except (ValueError, TypeError, KeyError) as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc))
     audit_report = run_dataset_qc_audit(db, id)
     return {
         'message': f'Successfully ingested {count} predictions',
@@ -201,7 +215,7 @@ def ingest_predictions_json(
 async def upload_predictions_file(
     id: int,
     file: UploadFile = File(...),
-    source_model: str = Form('yolov8-bdd100k'),
+    source_model: str = Form('yolo26n'),
     db: Session = Depends(get_db)
 ):
     require(db, Dataset, id)
@@ -213,7 +227,11 @@ async def upload_predictions_file(
     except Exception as e:
         raise HTTPException(422, f"Failed to parse predictions JSON: {str(e)}")
 
-    count = ingest_predictions_data(db, id, data, source_model)
+    try:
+        count = ingest_predictions_data(db, id, data, source_model)
+    except (ValueError, TypeError, KeyError) as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc))
     audit_report = run_dataset_qc_audit(db, id)
     return {
         'message': f'Successfully ingested {count} predictions',
@@ -235,14 +253,16 @@ def run_synthetic_benchmark(
             db, id, missing_ratio, wrong_class_ratio, source_model
         )
         return result
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     except Exception as e:
         raise HTTPException(500, f"Synthetic benchmark failed: {str(e)}")
 
 @router.post('/datasets/{id}/qc/detect')
-def run_model_detector(id: int, db: Session = Depends(get_db)):
+def run_model_detector(id: int, model_name: YOLOVariant = 'yolo26n', db: Session = Depends(get_db)):
     require(db, Dataset, id)
     try:
-        result = run_pretrained_detector_service(db, id)
+        result = run_pretrained_detector_service(db, id, model_name=model_name)
         return result
     except Exception as e:
         raise HTTPException(500, f"Model detection failed: {str(e)}")
@@ -312,7 +332,11 @@ async def upload_multi_model_and_run_ensemble(
         raise HTTPException(422, f"Failed to parse predictions JSON: {str(e)}")
 
     # Ingest the new model predictions
-    ingest_predictions_data(db, id, data, model_name)
+    try:
+        ingest_predictions_data(db, id, data, model_name)
+    except (ValueError, TypeError, KeyError) as exc:
+        db.rollback()
+        raise HTTPException(422, str(exc))
 
     # Run ensemble
     try:
@@ -334,7 +358,7 @@ async def upload_multi_model_and_run_ensemble(
 def get_triad_specs():
     """
     Get architectural specs for Option B Triad models:
-    YOLOv8n (1-Stage CNN), Faster R-CNN MobileNetV3 (2-Stage CNN), RT-DETR-l (Vision Transformer).
+    YOLO26n (1-Stage CNN), Faster R-CNN MobileNetV3 (2-Stage CNN), RT-DETR-l (Vision Transformer).
     """
     return TRIAD_SPECS
 
@@ -346,7 +370,7 @@ def run_triad_ensemble_endpoint(
 ):
     """
     Execute Option B Triad Inference & WBF Ensemble:
-      1. Runs YOLOv8n + Faster R-CNN MobileNetV3 + RT-DETR on dataset frames
+      1. Runs YOLO26n + Faster R-CNN MobileNetV3 + RT-DETR on dataset frames
       2. Persists normalized BDD100K predictions
       3. Automatically executes Weighted Box Fusion with Tri-Tier Consensus
     """
@@ -397,6 +421,7 @@ def audit_single_frame_endpoint(
     sample_id: int,
     conf_thresh: float = 0.35,
     force_repredict: bool = False,
+    model_name: YOLOVariant = 'yolo26n',
     db: Session = Depends(get_db)
 ):
     """
@@ -411,8 +436,9 @@ def audit_single_frame_endpoint(
         summary = audit_single_frame(
             db,
             sample_id,
-            run_detector=force_repredict or not sample.predictions,
-            conf_thresh=conf_thresh
+            run_detector=force_repredict or not has_yolo_predictions(sample, model_name),
+            conf_thresh=conf_thresh,
+            model_name=model_name
         )
         return {
             'sample_summary': summary,
@@ -440,7 +466,8 @@ def start_qc_queue(
         dataset_id=id,
         sample_ids=sample_ids,
         conf_thresh=conf_thresh,
-        force_repredict=force_repredict
+        force_repredict=force_repredict,
+        model_name=payload.model_name if payload else 'yolo26n'
     )
     return status
 
@@ -499,8 +526,10 @@ def verify_cvat_frame_endpoint(
     try:
         result = verify_and_sync_sample_from_cvat(db, sample_id)
         return result
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     except Exception as e:
-        raise HTTPException(500, f"CVAT frame verification failed: {str(e)}")
+        raise HTTPException(502, f"CVAT frame verification failed: {str(e)}")
 
 @router.post('/datasets/{id}/qc/cvat-push', response_model=CVATPushResponse)
 def push_to_cvat_endpoint(
@@ -579,7 +608,16 @@ def get_cvat_link(issue_id: int, db: Session = Depends(get_db)):
 
 def _apply_issue_resolution(db: Session, sample: Sample, issue: QCIssue, status: str, reviewer_note: str = ""):
     """Apply 1-Click resolution action to an issue and update ground truth annotation accordingly."""
-    if status in ('ACCEPTED', 'RESOLVED'):
+    if issue.status == status:
+        return  # retry must not add a second annotation or overwrite history
+    if status in ('REJECTED', 'FALSE_POSITIVE') and not reviewer_note.strip():
+        raise HTTPException(422, 'Provide a reason when rejecting an issue')
+    if issue.status != 'PENDING' and status != 'PENDING':
+        raise HTTPException(409, 'Reopen the issue before changing its review decision')
+    db.add(IssueReviewEvent(sample_id=sample.id, issue_id=issue.id, previous_status=issue.status,
+                           status=status, reviewer_note=reviewer_note or '',
+                           evidence_snapshot=issue.evidence or {}))
+    if status == 'ACCEPTED':
         if issue.issue_type == 'MISSING_OBJECT':
             new_annotation = Annotation(
                 sample_id=sample.id,
@@ -595,10 +633,7 @@ def _apply_issue_resolution(db: Session, sample: Sample, issue: QCIssue, status:
             if issue.annotation_id:
                 ann = db.get(Annotation, issue.annotation_id)
                 if ann:
-                    if ann.attributes is None:
-                        ann.attributes = {}
-                    ann.attributes['previous_label'] = ann.label
-                    ann.attributes['qc_verified'] = True
+                    ann.attributes = {**(ann.attributes or {}), 'previous_label': ann.label, 'qc_verified': True}
                     ann.label = issue.suggested_label
     elif status == 'PENDING':
         # Undo: remove added annotations or restore previous label
@@ -610,6 +645,7 @@ def _apply_issue_resolution(db: Session, sample: Sample, issue: QCIssue, status:
                 ann.label = attrs['previous_label']
                 attrs.pop('previous_label', None)
                 attrs.pop('qc_verified', None)
+                ann.attributes = dict(attrs)
 
     issue.status = status
     issue.reviewer_note = reviewer_note or ''

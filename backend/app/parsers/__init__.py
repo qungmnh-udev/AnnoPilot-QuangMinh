@@ -89,6 +89,8 @@ class CVATParser(BaseAnnotationParser):
 
             for image in root.findall('image'):
                 s = sample(image.get('name', str(image.get('id'))), int(image.get('width', 0)) or orig_w, int(image.get('height', 0)) or orig_h)
+                if image.get('id', '').isdigit():
+                    s['frame_number'] = int(image.get('id'))
                 for shape in image:
                     try:
                         attrs = {a.get('name'): a.text for a in shape.findall('attribute')}
@@ -195,6 +197,7 @@ class CVATParser(BaseAnnotationParser):
                     if frame_idx not in frames_dict:
                         fname = media_by_frame[frame_idx].name if frame_idx in media_by_frame else f"frame_{frame_idx:06d}.PNG"
                         frames_dict[frame_idx] = sample(fname, orig_w, orig_h)
+                    frames_dict[frame_idx]['frame_number'] = frame_idx
                     results.append(frames_dict[frame_idx])
 
         return results

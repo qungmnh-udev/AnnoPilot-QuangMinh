@@ -1,5 +1,8 @@
 from typing import Dict, List, Optional, Literal, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+import math
+
+YOLOVariant = Literal['yolo26n', 'yolo26s']
 
 class BBoxGeometry(BaseModel):
     x1: float
@@ -8,6 +11,18 @@ class BBoxGeometry(BaseModel):
     y2: float
 
 class QCConfig(BaseModel):
+    strategy: Literal['baseline', 'multi_model'] = 'multi_model'
+    baseline_model: Optional[str] = None
+    candidate_iou_threshold: float = Field(0.55, ge=0.1, le=0.95)
+    model_weights: Optional[Dict[str, float]] = None
+    expected_models: Optional[List[str]] = None
+
+    @field_validator('model_weights')
+    @classmethod
+    def positive_weights(cls, value):
+        if value and any(not math.isfinite(w) or w <= 0 for w in value.values()):
+            raise ValueError('Model weights must be finite and positive')
+        return value
     iou_match_threshold: float = Field(0.50, ge=0.1, le=0.9, description="IoU threshold to consider box referring to same object")
     iou_unmatched_threshold: float = Field(0.20, ge=0.0, le=0.5, description="Maximum IoU for prediction to be considered missing object")
     min_conf_missing: float = Field(0.40, ge=0.1, le=1.0, description="Minimum model confidence to flag missing object")
@@ -59,7 +74,7 @@ class CVATConfigRequest(BaseModel):
     cvat_base_url: Optional[str] = "http://localhost:8080"
     cvat_task_id: Optional[int] = None
     cvat_job_id: Optional[int] = None
-    cvat_token: Optional[str] = "ISQjKy3C.KDdn6nz1T65dB0A0s1yhb2ZWIQVcSDAO"
+    cvat_token: Optional[str] = ""
 
 class PredictionItem(BaseModel):
     label: str
@@ -69,11 +84,13 @@ class PredictionItem(BaseModel):
 
 class SamplePredictionsBatch(BaseModel):
     file_name: str
+    checkpoint: Optional[str] = None
+    inference_seconds: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
     predictions: List[PredictionItem]
 
 class IngestPredictionsRequest(BaseModel):
     predictions: List[SamplePredictionsBatch]
-    source_model: Optional[str] = "yolov8-bdd100k"
+    source_model: Optional[str] = "yolo26n"
 
 class QCIssueResponse(BaseModel):
     id: int
@@ -133,6 +150,7 @@ class QCAuditReport(BaseModel):
 # --- Incremental Frame Processing & CVAT Sync Schemas (P0) ---
 
 class StartQueueRequest(BaseModel):
+    model_name: YOLOVariant = 'yolo26n'
     conf_thresh: Optional[float] = 0.35
     sample_ids: Optional[List[int]] = None
     force_repredict: Optional[bool] = False
@@ -201,9 +219,22 @@ class EnsembleRunRequest(BaseModel):
     ensemble_source_model: str = Field("ensemble_wbf_v1", description="Identifier for fused predictions")
     run_audit: bool = Field(True, description="Automatically re-run QC audit after fusion")
 
+    @field_validator('model_weights')
+    @classmethod
+    def positive_weights(cls, value):
+        return QCConfig.positive_weights(value)
+
+    @field_validator('ensemble_source_model')
+    @classmethod
+    def ensemble_prefix(cls, value):
+        if not value.startswith('ensemble_'):
+            raise ValueError('Fused source names must start with ensemble_')
+        return value
+
 class DatasetModelsResponse(BaseModel):
     dataset_id: int
     models: List[str]
+    active_models: List[str] = Field(default_factory=list)
     counts: Dict[str, int]
     has_ensemble: bool = False
 
@@ -226,19 +257,36 @@ class TriadModelInfo(BaseModel):
     description: str
 
 class TriadRunRequest(BaseModel):
-    models: Optional[List[str]] = ["yolov8n", "fasterrcnn_mobilenet_v3", "rtdetr_l"]
+    models: Optional[List[str]] = ["yolo26n", "fasterrcnn_mobilenet_v3", "rtdetr_l"]
     weights: Optional[Dict[str, float]] = {
-        "yolov8n": 1.0,
+        "yolo26n": 1.0,
+        "yolo26s": 1.0,
         "fasterrcnn_mobilenet_v3": 1.0,
         "rtdetr_l": 1.2
     }
     conf_thresh: float = Field(0.35, ge=0.05, le=1.0)
     iou_thresh: float = Field(0.55, ge=0.1, le=0.95)
-    sample_limit: Optional[int] = Field(None, description="Limit number of frames for fast testing (None for all)")
+    sample_limit: Optional[int] = Field(None, gt=0, description="Limit number of frames for fast testing (None for all)")
     auto_ensemble: bool = Field(True, description="Automatically run Tri-Tier WBF ensemble after inference")
+
+    @field_validator('weights')
+    @classmethod
+    def positive_weights(cls, value):
+        return QCConfig.positive_weights(value)
+
+    @field_validator('models')
+    @classmethod
+    def supported_models(cls, value):
+        if value is not None and (not value or len(set(value)) != len(value)
+                                  or any(m not in ('yolo26n', 'yolo26s', 'fasterrcnn_mobilenet_v3', 'rtdetr_l') for m in value)):
+            raise ValueError('Select distinct supported detector models')
+        if value and 'yolo26n' in value and 'yolo26s' in value:
+            raise ValueError('Choose one YOLO26 variant per ensemble; benchmark variants separately')
+        return value
 
 class TriadRunResponse(BaseModel):
     success: bool
+    skipped_frames: List[str] = Field(default_factory=list)
     frames_processed: int
     selected_models: List[str]
     model_counts: Dict[str, int]

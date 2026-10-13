@@ -243,13 +243,10 @@ def test_single_frame_audit_and_cvat_verify(client):
     assert summary['wrong_class_count'] == 1
     assert summary['total_issues'] == 1
 
-    # Call CVAT verify endpoint on this frame
+    # A local audit cannot verify CVAT edits when no Task/Job is configured.
     verify_res = client.post(f'/api/datasets/{dataset_id}/qc/frame/{s1["id"]}/cvat-verify')
-    assert verify_res.status_code == 200
-    verify_data = verify_res.json()
-    assert verify_data['sample_id'] == s1['id']
-    assert verify_data['is_verified'] is False
-    assert verify_data['remaining_issues_count'] == 1
+    assert verify_res.status_code == 422
+    assert 'configured' in verify_res.json()['detail']
 
 def test_incremental_queue_lifecycle(client):
     data = [

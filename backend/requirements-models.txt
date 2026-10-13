@@ -1,0 +1,5 @@
+# Optional local inference dependencies; base API also accepts imported predictions.
+-r requirements.txt
+torch>=2.0
+torchvision>=0.15
+ultralytics>=8.4.174

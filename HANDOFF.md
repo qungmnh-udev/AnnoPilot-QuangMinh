@@ -1,6 +1,30 @@
 # AnnoPilot Development Handoff
 
-Last verified: 2026-10-03, approximately 11:18 Asia/Bangkok.
+Last verified: 2026-10-13, Asia/Saigon.
+
+## Current direction and implementation
+
+The user approved Model-assisted QC for missing objects and wrong classes: pre-label → human edit in CVAT → prioritized QC → review/sync → acceptance. CVAT is the annotation source of truth. Baseline is one pretrained YOLO26n (default) or YOLO26s inference; pilot uses the same selected YOLO plus other detectors for cross-verification. YOLOv8 predictions remain historical evidence with their original IDs. WBF generates proposed pre-labels; consensus is not ground truth. The previous difficulty/sampling direction below is historical.
+
+Implemented in this change:
+
+- Shared class-agnostic candidate matching, one vote per model, retained original evidence, weighted class selection and strict Tier 1 thresholds.
+- QC reads original predictions and retains disagreement even when annotation matches fusion; unmatched candidates remain eligible for Missing Object QC.
+- Golden Benchmark/evaluator API and UI: paired baseline/pilot runs on identical input snapshots, per-error recall, precision/F1, separate class suggestion accuracy, measured review efficiency and inference/QC durations.
+- Persisted acceptance events (submit/return/resubmit/accept) and issue review history. Retry does not duplicate accepted boxes; reviewed decisions survive prediction replacement by spatial reconciliation.
+- Per-frame commits during multi-model inference, UI polling, explicit inference error/coverage reporting; synthetic predictions are restricted to sandbox datasets and never used as real evaluation evidence.
+- CVAT push excludes pending/false-positive additions, prioritizes fused pre-labels, deduplicates exact existing shapes, refuses arbitrary class fallback. Live verification requires current CVAT data, preserves resolved issue history, normalizes rectangles and interpolates track keyframes. CVAT image IDs are retained in new imports.
+- Additive database migration, optional model dependencies in `backend/requirements-models.txt`, updated README and Vietnamese guide.
+
+Verification: **76 backend tests passed** (one existing Starlette/httpx deprecation warning), frontend `npm.cmd run build` passed, `git diff --check` passed. Tests use temporary storage; the production `annopilot.db` remained unchanged. Actual YOLO26n/s CPU inference was benchmarked on 15 demo images, and an actual YOLO26s inference through the QC API passed on a temporary DB. Full three-model inference, browser interaction and live CVAT server verification were not performed; other orchestration tests use mocks.
+
+YOLO26 migration: official `.pt` weights downloaded to `backend/models`, ignored in Git. Shared YOLO service resolves paths independent of cwd, serializes Predictor access and selects CUDA only if installed PyTorch supports it. UI dropdown selects n/s for queue, frame audit, detector and ensemble M1. Other YOLO variants become inactive without deleting historical predictions; automatic QC/ensemble excludes inactive sources. Optional model requirements now require Ultralytics >=8.4.174.
+
+Hardware: i5-12450H, 15.71 GiB RAM, RTX 3050 Laptop 4 GiB. Installed torch is `2.14.1+cpu`, so GPU remains unused. Measured CPU mean at imgsz 640: YOLO26n 85.40 ms/image, YOLO26s 165.08 ms/image; isolated process peak RSS 395.6/481.7 MiB. Report: `backend/benchmarks/yolo26-hardware.json`; protocol and rerun command: `doc/yolo26-hardware.md`. These numbers measure inference feasibility, not QC recall/precision or full ensemble throughput.
+
+Restart the backend to initialize new tables/column. Read `doc/project-direction.md` and `doc/huong-dan-su-dung.md` for the current protocol. Remaining work: independently verify a real golden set, run baseline/pilot experiments, calibrate risk/thresholds and measure review/acceptance outcomes. Durable queue resume, automatic per-frame CVAT push/issues, TTA and export-blocking Quality Gate remain future work.
+
+## Historical handoff (2026-10-03)
 
 ## 1. Project Goal
 Dataset → Import/normalize → Media + Annotation Analysis → Difficulty → Dataset Health → Smart Sampling → Workload → Reviewer Priority → Human Review → CSV Export.

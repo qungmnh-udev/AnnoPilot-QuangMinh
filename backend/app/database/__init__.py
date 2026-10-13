@@ -36,10 +36,12 @@ def initialize_database():
             if 'cvat_base_url' not in cols:
                 connection.execute(text("ALTER TABLE datasets ADD COLUMN cvat_base_url VARCHAR DEFAULT 'http://localhost:8080'"))
             if 'cvat_token' not in cols:
-                connection.execute(text("ALTER TABLE datasets ADD COLUMN cvat_token VARCHAR DEFAULT 'ISQjKy3C.KDdn6nz1T65dB0A0s1yhb2ZWIQVcSDAO'"))
+                connection.execute(text("ALTER TABLE datasets ADD COLUMN cvat_token VARCHAR DEFAULT ''"))
 
         if 'samples' in table_names:
             cols = {col['name'] for col in insp.get_columns('samples')}
+            if 'inference_state' not in cols:
+                connection.execute(text('ALTER TABLE samples ADD COLUMN inference_state JSON'))
             if 'frame_number' not in cols:
                 connection.execute(text('ALTER TABLE samples ADD COLUMN frame_number INTEGER'))
 

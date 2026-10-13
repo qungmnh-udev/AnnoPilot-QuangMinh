@@ -18,3 +18,5 @@ backend/tests/annopilot-tests-*/
 backend/tests/ui_fixture/uploads/
 backend/tests/ui_fixture/exports/
 *.tsbuildinfo
+backend/.runtime/
+backend/models/yolo26*.pt

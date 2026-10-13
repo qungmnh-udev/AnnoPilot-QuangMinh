@@ -10,7 +10,7 @@ Architecture:
   Model B (e.g. RT-DETR)    ──┘
 
 Tri-Tier output:
-  Tier 1 (High Consensus)     → Auto-accept pre-label
+  Tier 1 (High Consensus)     → Proposed pre-label, human verification
   Tier 2 (Class Disagreement) → Flag for 1-click human review
   Tier 3 (Model Divergence)   → Route to QC queue for manual inspection
 """
@@ -28,6 +28,7 @@ from app.services.qc_engine import (
     normalize_label,
     invalidate_qc_report_cache,
     run_dataset_qc_audit,
+    active_prediction_model_names,
 )
 
 
@@ -69,6 +70,7 @@ class FusedBox:
     contributing_models: List[str] = field(default_factory=list)
     model_votes: Dict[str, float] = field(default_factory=dict)  # label → avg conf
     num_models_agreed: int = 0
+    evidence: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def geometry(self) -> Dict[str, float]:
@@ -123,148 +125,27 @@ def weighted_box_fusion(
     Returns:
         List of FusedBox sorted by confidence descending.
     """
-    model_names = list(model_predictions.keys())
-    num_models = len(model_names)
-
-    if num_models == 0:
-        return []
-
-    # Default equal weights
-    if model_weights is None:
-        model_weights = {m: 1.0 for m in model_names}
-
-    # Flatten all boxes with their model weight
-    all_boxes: List[Tuple[DetectionBox, float]] = []
-    for model_name, boxes in model_predictions.items():
-        w = model_weights.get(model_name, 1.0)
-        for box in boxes:
-            all_boxes.append((box, w))
-
-    # Sort by weighted confidence descending
-    all_boxes.sort(key=lambda x: x[0].confidence * x[1], reverse=True)
-
-    # Greedy clustering
-    clusters: List[List[Tuple[DetectionBox, float]]] = []
-    used = [False] * len(all_boxes)
-
-    for i, (box_i, w_i) in enumerate(all_boxes):
-        if used[i]:
-            continue
-        cluster = [(box_i, w_i)]
-        used[i] = True
-
-        for j in range(i + 1, len(all_boxes)):
-            if used[j]:
-                continue
-            box_j, w_j = all_boxes[j]
-            # Check IoU against the cluster representative (first / highest-conf box)
-            if _iou(box_i, box_j) >= iou_threshold:
-                cluster.append((box_j, w_j))
-                used[j] = True
-
-        clusters.append(cluster)
-
-    # Fuse each cluster
-    fused_results: List[FusedBox] = []
-
-    for cluster in clusters:
-        # Weighted average coordinates
-        total_weight = 0.0
-        wx1, wy1, wx2, wy2 = 0.0, 0.0, 0.0, 0.0
-        contributing_models = set()
-        label_confs: Dict[str, List[float]] = {}  # label → [conf, ...]
-        model_labels: Dict[str, str] = {}  # model → predicted label
-
-        for box, w in cluster:
-            effective_w = w * box.confidence
-            total_weight += effective_w
-            wx1 += box.x1 * effective_w
-            wy1 += box.y1 * effective_w
-            wx2 += box.x2 * effective_w
-            wy2 += box.y2 * effective_w
-            contributing_models.add(box.source_model)
-            norm_label = normalize_label(box.label)
-            label_confs.setdefault(norm_label, []).append(box.confidence)
-            model_labels[box.source_model] = norm_label
-
-        if total_weight <= 0:
-            continue
-
-        fused_x1 = wx1 / total_weight
-        fused_y1 = wy1 / total_weight
-        fused_x2 = wx2 / total_weight
-        fused_y2 = wy2 / total_weight
-
-        # Determine winning label and confidence
-        model_votes: Dict[str, float] = {}
-        for lbl, confs in label_confs.items():
-            model_votes[lbl] = round(sum(confs) / len(confs), 3)
-
-        best_label = max(model_votes, key=model_votes.get)  # type: ignore
-        # Fused confidence: average of all contributing confidences
-        all_confs = [box.confidence for box, _ in cluster]
-        fused_conf = sum(all_confs) / len(all_confs)
-
-        if fused_conf < confidence_threshold:
-            continue
-
-        # Determine tier
-        n_models = len(contributing_models)
-        all_same_label = len(label_confs) == 1
-        min_conf_in_cluster = min(all_confs)
-
-        # Compute average IoU within cluster pairs
-        avg_iou = 0.0
-        pair_count = 0
-        boxes_in_cluster = [b for b, _ in cluster]
-        for ci in range(len(boxes_in_cluster)):
-            for cj in range(ci + 1, len(boxes_in_cluster)):
-                avg_iou += _iou(boxes_in_cluster[ci], boxes_in_cluster[cj])
-                pair_count += 1
-        if pair_count > 0:
-            avg_iou /= pair_count
-
-        if n_models >= 2 and all_same_label and min_conf_in_cluster >= high_consensus_conf and avg_iou >= high_consensus_iou:
-            tier = 1
-            tier_reason = f"High consensus: {n_models} models agree on '{best_label}' (avg IoU={avg_iou:.2f}, min conf={min_conf_in_cluster:.2f})"
-        elif n_models >= 2 and not all_same_label:
-            tier = 2
-            labels_str = ", ".join(f"{lbl}: {conf:.0%}" for lbl, conf in sorted(model_votes.items(), key=lambda x: -x[1]))
-            tier_reason = f"Class disagreement: [{labels_str}]"
-        elif n_models >= 2 and all_same_label:
-            # Both models agree on label but IoU or confidence is below Tier 1 threshold
-            tier = 1
-            tier_reason = f"Moderate consensus: {n_models} models agree on '{best_label}' (avg IoU={avg_iou:.2f})"
-        else:
-            # Only 1 model saw this object
-            tier = 3
-            src = list(contributing_models)[0]
-            tier_reason = f"Only detected by {src} (conf={fused_conf:.2f})"
-
-        fused_results.append(FusedBox(
-            label=best_label,
-            confidence=round(fused_conf, 3),
-            x1=fused_x1,
-            y1=fused_y1,
-            x2=fused_x2,
-            y2=fused_y2,
-            tier=tier,
-            tier_reason=tier_reason,
-            contributing_models=sorted(contributing_models),
-            model_votes=model_votes,
-            num_models_agreed=n_models,
+    from app.services.candidates import build_candidates
+    detections = [
+        {'model_id': model, 'label': normalize_label(box.label),
+         'confidence': box.confidence, 'geometry': box.geometry}
+        for model, boxes in model_predictions.items() for box in boxes
+    ]
+    candidates = build_candidates(detections, list(model_predictions), model_weights,
+                                  iou_threshold, high_consensus_conf, high_consensus_iou)
+    fused = []
+    for c in candidates:
+        if c.confidence < confidence_threshold:
+            continue  # original predictions remain available to QC
+        fused.append(FusedBox(
+            label=c.label, confidence=c.confidence, **c.geometry,
+            tier=c.tier, tier_reason=c.tier_reason,
+            contributing_models=c.evidence['contributing_models'],
+            model_votes=c.evidence['model_votes'],
+            num_models_agreed=c.evidence['num_models_agreed'], evidence=c.evidence,
         ))
+    return sorted(fused, key=lambda f: (f.tier, -f.confidence))
 
-    fused_results.sort(key=lambda f: (-f.tier, -f.confidence))
-    # Sort: Tier 1 first, then Tier 2, then Tier 3, highest confidence first within tier
-    fused_results.sort(key=lambda f: (f.tier, -f.confidence))
-
-    return fused_results
-
-
-# ────────────────────────────────────────────────────────────────────
-# Multi-Model Ensemble Service for AnnoPilot
-# ────────────────────────────────────────────────────────────────────
 
 def load_predictions_from_json(
     data: List[Dict[str, Any]],
@@ -341,8 +222,7 @@ def fuse_multi_model_predictions(
         # Gather per-model predictions for this file
         per_model: Dict[str, List[DetectionBox]] = {}
         for model_name, preds_by_file in models_data.items():
-            if fname in preds_by_file:
-                per_model[model_name] = preds_by_file[fname]
+            per_model[model_name] = preds_by_file.get(fname, [])
 
         fused = weighted_box_fusion(
             per_model,
@@ -427,6 +307,7 @@ def run_ensemble_and_store(
                 confidence=fb.confidence,
                 source_model=ensemble_source_model,
                 extra_data={
+                    **fb.evidence,
                     "tier": fb.tier,
                     "tier_reason": fb.tier_reason,
                     "contributing_models": fb.contributing_models,
@@ -489,16 +370,15 @@ def run_ensemble_from_existing_predictions(
     for sample in dataset.samples:
         all_preds.extend(sample.predictions)
 
-    if model_names is None:
-        model_names = sorted(set(
-            p.source_model for p in all_preds
-            if p.source_model and not p.source_model.startswith("ensemble_")
-        ))
+    use_active = model_names is None
+    if use_active:
+        model_names = sorted({model for sample in dataset.samples for model in active_prediction_model_names(sample)
+                              if not model.startswith('synthetic')})
 
-    if len(model_names) < 1:
+    if len(model_names) < 2:
         return {
             "status": "error",
-            "message": "Cần ít nhất 1 nguồn dự đoán (source_model) để chạy ensemble. "
+            "message": "Cần ít nhất 2 nguồn dự đoán (source_model) để chạy ensemble. "
                        "Hãy tải lên predictions từ nhiều model trước.",
             "models_found": [],
         }
@@ -507,8 +387,9 @@ def run_ensemble_from_existing_predictions(
     models_data: Dict[str, Dict[str, List[DetectionBox]]] = {m: {} for m in model_names}
 
     for sample in dataset.samples:
+        active = active_prediction_model_names(sample) if use_active else model_names
         for pred in sample.predictions:
-            if pred.source_model not in models_data:
+            if pred.source_model not in models_data or pred.source_model not in active:
                 continue
             geo = pred.geometry or {}
             box = DetectionBox(
@@ -562,12 +443,16 @@ def get_dataset_prediction_models(db: Session, dataset_id: int) -> Dict[str, Any
     )
 
     counts = {r[0] or "unknown": int(r[1]) for r in rows}
+    for sample in dataset.samples:
+        for model in (sample.inference_state or {}):
+            counts.setdefault(model, 0)
     models = sorted(counts.keys())
     has_ensemble = any(m.startswith("ensemble_") for m in models)
 
     return {
         "dataset_id": dataset_id,
         "models": models,
+        "active_models": sorted({m for sample in dataset.samples for m in active_prediction_model_names(sample)}),
         "counts": counts,
         "has_ensemble": has_ensemble,
     }

@@ -71,14 +71,16 @@ class CVATParser(BaseAnnotationParser):
                             self.cvat_task_id = int(t_id.strip())
                     except (ValueError, TypeError):
                         pass
-                segment = meta.find('.//segment')
-                if segment is not None:
-                    try:
-                        s_id = segment.findtext('id')
-                        if s_id and s_id.strip().isdigit():
-                            self.cvat_job_id = int(s_id.strip())
-                    except (ValueError, TypeError):
-                        pass
+                # Segment IDs and Job IDs are different CVAT entities.
+                job_id = meta.findtext('job/id')
+                if job_id and job_id.strip().isdigit():
+                    self.cvat_job_id = int(job_id.strip())
+                else:
+                    segments = meta.findall('.//segment')
+                    if len(segments) == 1:
+                        match = re.search(r'/jobs/(\d+)(?:[/?#]|$)', segments[0].findtext('url') or '')
+                        if match:
+                            self.cvat_job_id = int(match.group(1))
                 orig_size = meta.find('.//original_size')
                 if orig_size is not None:
                     try:

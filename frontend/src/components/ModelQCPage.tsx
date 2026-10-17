@@ -51,6 +51,8 @@ import {
 } from "lucide-react";
 import { api, json } from "../api";
 import { QCEvaluationPanel } from './QCEvaluationPanel';
+import { TrainingPanel } from './TrainingPanel';
+import { WBFExperimentPanel } from './WBFExperimentPanel';
 import type {
   Dataset,
   YOLOVariant,
@@ -830,9 +832,8 @@ export function ModelQCPage({
     const limitToUse = customLimit !== undefined ? customLimit : triadLimit;
     void act("Đang chạy inference Bộ 3 Mô hình Phương án B (YOLO26 + Faster R-CNN + RT-DETR)...", async () => {
       try {
-        const res = await api<TriadRunResponse>(`/datasets/${dataset.id}/ensemble/run-triad`, {
-          method: "POST",
-          body: JSON.stringify({
+        const res = await api<TriadRunResponse>(`/datasets/${dataset.id}/ensemble/run-triad`,
+          json("POST", {
             models: triadModels,
             weights: {
               [selectedYoloModel]: modelWeights[selectedYoloModel] ?? 1.0,
@@ -844,7 +845,7 @@ export function ModelQCPage({
             sample_limit: limitToUse,
             auto_ensemble: true,
           }),
-        });
+        );
         if (res.ensemble_result) {
           setEnsembleResult(res.ensemble_result);
         }
@@ -981,7 +982,7 @@ export function ModelQCPage({
     if (!selectedSample?.predictions) return [];
     const set = new Set<string>();
     for (const p of selectedSample.predictions) {
-      if (p.source_model) set.add(p.source_model);
+      if (p.source_model && !p.source_model.toLowerCase().startsWith('yolov8')) set.add(p.source_model);
     }
     return Array.from(set);
   }, [selectedSample]);
@@ -1001,7 +1002,7 @@ export function ModelQCPage({
 
   const displayedPredictions = useMemo(() => {
     if (!selectedSample?.predictions) return [];
-    let preds = selectedSample.predictions.filter((p) => (p.confidence ?? 1.0) >= minPredConf);
+    let preds = selectedSample.predictions.filter((p) => !p.source_model?.toLowerCase().startsWith('yolov8') && (p.confidence ?? 1.0) >= minPredConf);
     if (selectedPredModelFilter === "all") {
       return preds;
     }
@@ -1335,7 +1336,19 @@ export function ModelQCPage({
         </div>
       )}
 
+      <TrainingPanel key={`training-${dataset.id}`} datasetId={dataset.id} datasetName={dataset.name}
+        onCheckpointChanged={async model => {
+          if (model === 'yolo26n' || model === 'yolo26s') selectYoloModel(model);
+          await loadQCData();
+        }} />
       <QCEvaluationPanel key={dataset.id} datasetId={dataset.id} />
+      <details className="card">
+        <summary><strong>Luồng dữ liệu CVAT ↔ AnnoPilot</strong></summary>
+        <p><strong>Lần đầu:</strong> Export CVAT for images kèm ảnh → Upload Dataset vào AnnoPilot → cấu hình URL, Task ID và PAT. Chưa tự tải ảnh/dataset chỉ bằng Task ID.</p>
+        <p><strong>CVAT → AnnoPilot:</strong> Save trên CVAT → Đồng bộ từ CVAT (không chọn file) để kéo nhãn live vào dataset đã có. Chọn XML/BDD100K JSON chỉ nạp snapshot từ file, không xác minh live.</p>
+        <p><strong>AnnoPilot → CVAT:</strong> Chạy WBF → Đẩy nhãn, chọn predictions để tạo pre-label; reviewer sửa và Save trên CVAT → Kiểm tra &amp; Đồng bộ từ CVAT. Accept 1-Click chỉ sửa bản local.</p>
+        <p><strong>Phạm vi:</strong> Để trống Job ID để dùng toàn Task. Chỉ chọn Job nếu mọi ảnh của dataset nằm trong Job đó. Append bổ sung box mới, không sửa box sai class cũ; Replace thay box 2D trên các frame của dataset, cần kiểm tra snapshot trước khi dùng.</p>
+      </details>
       {report && ((report.unprocessed_samples_count || 0) > 0 || (report.inference_error_samples_count || 0) > 0) && (
         <p role="status" className="card text-warning" style={{ padding: '1rem' }}>
           Độ phủ chưa đầy đủ: {report.unprocessed_samples_count || 0} frame chưa inference/import prediction; {report.inference_error_samples_count || 0} frame có lỗi inference. Không dùng các frame này để kết luận chất lượng.
@@ -2330,11 +2343,11 @@ export function ModelQCPage({
                                 <button
                                   className="btn-resolve-cvat"
                                   disabled={busy}
-                                  onClick={() => handleResolveIssue(issue.id, "RESOLVED", "Đã sửa trên CVAT", issue)}
-                                  title="Đánh dấu đã hoàn thành việc sửa nhãn trực tiếp trên CVAT"
+                                  onClick={() => handleResolveIssue(issue.id, "RESOLVED", "Ghi nhận thủ công đã sửa; chưa xác minh live CVAT", issue)}
+                                  title="Ghi nhận thủ công. Dùng Kiểm tra & Đồng bộ từ CVAT để đọc nhãn live."
                                 >
                                   <CheckCircle2 size={15} />
-                                  Đã sửa trên CVAT (Resolved)
+                                  Đã sửa (ghi nhận thủ công)
                                 </button>
                                 <button
                                   className="btn-accept"
@@ -2359,7 +2372,7 @@ export function ModelQCPage({
                               <div className="resolution-status resolved">
                                 <CheckCircle2 size={18} />
                                 <span>
-                                  Đã sửa trên CVAT: Annotator đã hoàn tất việc sửa nhãn trong CVAT Editor.
+                                  Cảnh báo đã xử lý. Xem ghi chú để phân biệt ghi nhận thủ công, snapshot file và xác minh live.
                                 </span>
                                 <button
                                   className="btn-undo"
@@ -2586,7 +2599,7 @@ export function ModelQCPage({
                     value={cvatJobId}
                     onChange={(e) => setCvatJobId(e.target.value)}
                   />
-                  <small className="muted">Nếu có Job ID, đường link sẽ trỏ trực tiếp vào Job thay vì cấp Task.</small>
+                  <small className="muted">Để trống để sync toàn Task. Chọn Job chỉ khi toàn bộ ảnh của dataset thuộc Job đó; Job ID khác Segment ID.</small>
                 </label>
               </div>
 
@@ -2791,7 +2804,7 @@ export function ModelQCPage({
 
               <div className="form-group">
                 <label>
-                  <span>Hoặc tải lên file Annotations thủ công (.xml hoặc .json — Tùy chọn):</span>
+                  <span>Hoặc nạp snapshot thủ công (CVAT XML / BDD100K JSON — không phải xác minh live):</span>
                   <input type="file" accept=".xml,.json" />
                 </label>
                 <small className="muted">
@@ -2844,17 +2857,17 @@ export function ModelQCPage({
                     onChange={(e) => setCvatPushSource(e.target.value as "merged" | "predictions" | "annotations")}
                   >
                     <option value="merged">
-                      🌟 Gộp thông minh (Khuyên dùng) — Giữ 100% nhãn người gán + Bổ sung vật thể AI tìm thấy (MISSING_OBJECT)
+                      Nhãn local hiện tại + Missing Object đã được duyệt (merged)
                     </option>
                     <option value="predictions">
                       🤖 Dự đoán của Model AI (Pre-labeling) — Đẩy toàn bộ vật thể AI phát hiện lên CVAT làm nhãn gợi ý
                     </option>
                     <option value="annotations">
-                      👤 Nhãn người gán gốc (Ground Truth) — Chỉ đẩy các box người gán đã vẽ trong AnnoPilot
+                      Nhãn mirror local hiện tại (annotations)
                     </option>
                   </select>
                   <small className="muted">
-                    {cvatPushSource === "merged" && "Tự động gộp nhãn người gán và các vật thể AI phát hiện bị sót để annotator trên CVAT không phải vẽ lại từ đầu."}
+                    {cvatPushSource === "merged" && "Giữ box trong mirror local, chỉ bổ sung Missing Object ACCEPTED/RESOLVED; không gửi candidate chưa duyệt."}
                     {cvatPushSource === "predictions" && "Rất phù hợp cho quy trình Pre-labeling: đưa nhãn AI vào CVAT để người dùng chỉnh sửa nhanh."}
                     {cvatPushSource === "annotations" && "Chỉ xuất các bounding box người gán hiện có trong cơ sở dữ liệu AnnoPilot sang CVAT."}
                   </small>
@@ -2869,16 +2882,16 @@ export function ModelQCPage({
                     onChange={(e) => setCvatPushMode(e.target.value as "replace" | "create")}
                   >
                     <option value="create">
-                      🛡️ Bổ sung thêm (Append / Create — Mặc định an toàn, không làm mất nhãn trên CVAT)
+                      Bổ sung box mới (Append / Create — không cập nhật box cũ)
                     </option>
                     <option value="replace">
-                      ⚠️ Ghi đè toàn bộ (Replace — Xóa sạch các shape đang có trên CVAT Job và thay bằng AnnoPilot)
+                      Thay box 2D trên các frame của dataset (Replace)
                     </option>
                   </select>
                   <small className="muted">
                     {cvatPushMode === "create"
-                      ? "Chế độ này an toàn tuyệt đối: nhãn vẽ trực tiếp trên CVAT sẽ KHÔNG bị mất."
-                      : "Cảnh báo: Nếu annotator vừa vẽ trực tiếp trên CVAT mà chưa Đồng bộ về AnnoPilot, các nhãn đó trên CVAT sẽ bị thay thế."}
+                      ? "Chỉ thêm box chưa trùng chính xác. Sửa sai class phải thao tác trên CVAT rồi sync về, hoặc kiểm tra snapshot và dùng Replace."
+                      : "Thay rectangle trên các frame có trong dataset; giữ frame khác, shape khác loại và tags. Không hỗ trợ round-trip video tracks. Nhãn CVAT chưa kéo về có thể bị thay thế."}
                   </small>
                 </label>
               </div>
@@ -2944,6 +2957,8 @@ export function ModelQCPage({
                 <X size={16} />
               </button>
             </div>
+
+            <WBFExperimentPanel key={dataset.id} datasetId={dataset.id} yoloModel={selectedYoloModel} />
 
             {/* Architecture Explanation Banner */}
             <div style={{ background: "rgba(168, 85, 247, 0.08)", border: "1px solid rgba(168, 85, 247, 0.25)", borderRadius: "10px", padding: "1rem", margin: "1rem 0" }}>
@@ -3040,7 +3055,7 @@ export function ModelQCPage({
               {availableModelsData && availableModelsData.models.length > 0 ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                   {availableModelsData.models
-                    .filter((m) => !m.startsWith("ensemble_"))
+                    .filter((m) => !m.startsWith("ensemble_") && !m.toLowerCase().startsWith('yolov8'))
                     .map((modelName) => {
                       const isSelected = selectedEnsembleModels.includes(modelName);
                       const count = availableModelsData.counts[modelName] || 0;

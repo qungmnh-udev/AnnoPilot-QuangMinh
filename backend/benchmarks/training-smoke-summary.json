@@ -1,0 +1,47 @@
+{
+  "purpose": "Technical smoke only; synthetic images are not model-quality evidence",
+  "device": "cpu",
+  "gpu_verified": false,
+  "results": [
+    {
+      "model": "yolo26n",
+      "status": "COMPLETED",
+      "epochs": 1,
+      "train_images": 3,
+      "validation_images": 1,
+      "checkpoint_sha256": "236c80a894c5b74e4c7e3b859aae7d140b4a594b29e6bedb49ba358deabfdd6a",
+      "qc_inference_succeeded": true,
+      "raw_report": ".runtime/training-smoke-a46570e2-d006-4938-b6c0-5ff7dfa21dfa/smoke.json"
+    },
+    {
+      "model": "rtdetr_l",
+      "status": "COMPLETED",
+      "epochs": 1,
+      "train_images": 3,
+      "validation_images": 1,
+      "checkpoint_sha256": "9a8063e6624fa5f5334de111b26e6cb262e96cde29905525b2be8384349811d4",
+      "qc_inference_succeeded": true,
+      "raw_report": ".runtime/training-smoke-a46570e2-d006-4938-b6c0-5ff7dfa21dfa/smoke.json"
+    },
+    {
+      "model": "fasterrcnn_mobilenet_v3",
+      "status": "COMPLETED",
+      "epochs": 1,
+      "train_images": 3,
+      "validation_images": 1,
+      "checkpoint_sha256": "1310d09a53cd336e52b18619f7406c5656bf4f166daa0fa4db19545ff76eec8c",
+      "qc_inference_succeeded": true,
+      "raw_report": ".runtime/training-smoke-a46570e2-d006-4938-b6c0-5ff7dfa21dfa/smoke.json"
+    },
+    {
+      "model": "yolo26s",
+      "status": "COMPLETED",
+      "epochs": 1,
+      "train_images": 3,
+      "validation_images": 1,
+      "checkpoint_sha256": "03eaa809093dd3cb14d3550f275f95f599cf88391204b3156729d288bab8230b",
+      "qc_inference_succeeded": true,
+      "raw_report": ".runtime/training-smoke-d4ed6676-1558-4a14-8b80-7cfae94c274b/smoke.json"
+    }
+  ]
+}

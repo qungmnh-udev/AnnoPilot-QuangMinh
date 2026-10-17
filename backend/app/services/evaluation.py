@@ -1,7 +1,7 @@
 """Independent golden annotations define true errors; consensus never defines GT."""
 from time import perf_counter
 import math
-from app.models import GoldenBenchmark, QCEvaluation, AcceptanceEvent
+from app.models import GoldenBenchmark, QCEvaluation, AcceptanceEvent, ModelCheckpoint
 from app.services.candidates import iou
 from app.services.qc_engine import detect_sample_qc_issues, normalize_label
 
@@ -91,11 +91,19 @@ def compare_strategies(db, dataset, request):
             raise ValueError('Pilot sources share an identical checkpoint; do not count aliases as independent detectors')
         for model in request.pilot_models:
             state = (sample.inference_state or {}).get(model, {})
+            if state.get('status') == 'STALE':
+                raise ValueError('Checkpoint đã đổi. Chạy lại inference trước khi đánh giá.')
+            if state.get('training_job_id'):
+                from sqlalchemy import select
+                from app.services.training import file_hash
+                trained = db.scalar(select(ModelCheckpoint).where(ModelCheckpoint.job_id == state['training_job_id']))
+                if trained and sample.media_path and file_hash(sample.media_path) in (trained.training_images or []):
+                    raise ValueError('Ảnh Golden đã được dùng để train/validation checkpoint này. Chọn tập kiểm chứng độc lập.')
             if state.get('status') == 'ERROR':
                 raise ValueError(f"Inference failed for {model} on {sample.file_name}")
             if not any(p.source_model == model for p in preds) and state.get('status') not in ('SUCCESS', 'IMPORTED'):
                 raise ValueError(f"Missing inference/import coverage for {model} on {sample.file_name}; empty results must be explicitly recorded")
-            if model.startswith(('ensemble_', 'synthetic')) or any((p.extra_data or {}).get('synthetic') for p in preds):
+            if model.startswith(('ensemble_', 'synthetic', 'yolov8')) or any((p.extra_data or {}).get('synthetic') for p in preds):
                 raise ValueError('Evaluation requires real independent detector predictions')
         snapshots.append(dict(file_name=sample.file_name, annotations=[dict(id=a.id, label=a.label, geometry=a.geometry, shape_type=a.shape_type) for a in sample.annotations],
                               predictions=[dict(id=p.id, label=p.label, geometry=p.geometry, confidence=p.confidence,

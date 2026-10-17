@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 import logging
+import threading
 from time import perf_counter
 from datetime import datetime, timezone
 
@@ -77,11 +78,17 @@ TRIAD_SPECS: Dict[str, Dict[str, Any]] = {
 }
 
 _MODEL_CACHE: Dict[str, Any] = {}
+_INFERENCE_LOCK = threading.RLock()
 
 
 def get_rtdetr_weights_path() -> Optional[Path]:
     """Find local RT-DETR weights."""
+    from app.services.model_registry import active_checkpoint
+    trained = active_checkpoint('rtdetr_l')
+    if trained:
+        return Path(trained['path'])
     candidates = [
+        Path(__file__).resolve().parents[2] / 'models' / 'rtdetr-l.pt',
         Path("models/rtdetr-l.pt"),
         Path("backend/models/rtdetr-l.pt"),
         Path("rtdetr-l.pt"),
@@ -99,7 +106,9 @@ def run_yolo_inference(image_path, conf_thresh=.35, weights_path=None, model_nam
 
 def run_fasterrcnn_inference(
     image_path: str,
-    conf_thresh: float = 0.35
+    conf_thresh: float = 0.35,
+    weights_path=None,
+    device=None,
 ) -> List[Dict[str, Any]]:
     """Execute Faster R-CNN MobileNetV3 inference with COCO -> BDD100K normalization."""
     try:
@@ -107,17 +116,32 @@ def run_fasterrcnn_inference(
         import torchvision.models.detection as d
         import torchvision.transforms.functional as F
 
-        cache_key = "fasterrcnn_mobilenet_v3"
+        from app.services.model_registry import active_checkpoint
+        trained = active_checkpoint('fasterrcnn_mobilenet_v3') if weights_path is None else None
+        checkpoint = Path(weights_path or trained['path']) if weights_path or trained else None
+        device = inference_device(device)
+        cache_key = f"fasterrcnn_{checkpoint}_{device}"
         if cache_key not in _MODEL_CACHE:
-            weights = d.FasterRCNN_MobileNet_V3_Large_FPN_Weights.DEFAULT
-            model = d.fasterrcnn_mobilenet_v3_large_fpn(weights=weights)
-            model.eval()
-            _MODEL_CACHE[cache_key] = (model, weights.meta["categories"])
+            for key in list(_MODEL_CACHE):
+                if key.startswith('fasterrcnn_'):
+                    del _MODEL_CACHE[key]
+            if checkpoint:
+                from app.services.training_worker import detection_model
+                saved = torch.load(checkpoint, map_location='cpu', weights_only=True)
+                model = detection_model(saved['classes'], saved['image_size'], pretrained=False)
+                model.load_state_dict(saved['state_dict'])
+                categories = ['__background__', *saved['classes']]
+            else:
+                weights = d.FasterRCNN_MobileNet_V3_Large_FPN_Weights.DEFAULT
+                model = d.fasterrcnn_mobilenet_v3_large_fpn(weights=weights)
+                categories = weights.meta['categories']
+            model.to(device).eval()
+            _MODEL_CACHE[cache_key] = (model, categories)
 
         model, categories = _MODEL_CACHE[cache_key]
 
         img = Image.open(image_path).convert("RGB")
-        img_t = F.to_tensor(img).unsqueeze(0)
+        img_t = F.to_tensor(img).unsqueeze(0).to(device)
 
         with torch.no_grad():
             preds = model(img_t)[0]
@@ -131,7 +155,7 @@ def run_fasterrcnn_inference(
             if score < conf_thresh:
                 continue
             cat_name = categories[lbl_idx].lower() if lbl_idx < len(categories) else "unknown"
-            normalized_label = COCO_TO_BDD100K.get(cat_name)
+            normalized_label = COCO_TO_BDD100K.get(cat_name, cat_name)
             if not normalized_label or normalized_label not in BDD100K_CLASSES:
                 continue
 
@@ -160,12 +184,15 @@ def run_rtdetr_inference(
     try:
         from ultralytics import RTDETR
         w_path = weights_path or (str(get_rtdetr_weights_path()) if get_rtdetr_weights_path() else "rtdetr-l.pt")
-        cache_key = f"rtdetr_{w_path}"
+        cache_key = f"rtdetr_{w_path}_{inference_device()}"
         if cache_key not in _MODEL_CACHE:
+            for key in list(_MODEL_CACHE):
+                if key.startswith('rtdetr_'):
+                    del _MODEL_CACHE[key]
             _MODEL_CACHE[cache_key] = RTDETR(w_path)
         model = _MODEL_CACHE[cache_key]
 
-        results = model.predict(source=image_path, conf=conf_thresh, verbose=False)
+        results = model.predict(source=image_path, conf=conf_thresh, device=inference_device(), verbose=False)
         boxes = []
         for r in results:
             for b in r.boxes:
@@ -202,11 +229,13 @@ def detect_triad_frame(image_path, conf_thresh=.35, models=None, timings=None):
     runners = {'yolo26n': run_yolo_inference, 'yolo26s': lambda path, **kw: run_yolo_inference(path, model_name='yolo26s', **kw), 'fasterrcnn_mobilenet_v3': run_fasterrcnn_inference,
                'rtdetr_l': run_rtdetr_inference}
     results = {}
-    for model in selected_models:
-        started = perf_counter()
-        results[model] = runners[model](image_path, conf_thresh=conf_thresh)
-        if timings is not None:
-            timings[model] = perf_counter() - started
+    # Cached Ultralytics predictors are mutable: serialize UI experiments and triad runs.
+    with _INFERENCE_LOCK:
+        for model in selected_models:
+            started = perf_counter()
+            results[model] = runners[model](image_path, conf_thresh=conf_thresh)
+            if timings is not None:
+                timings[model] = perf_counter() - started
     return results
 
 
@@ -259,7 +288,9 @@ def run_dataset_triad_inference(
             continue
         timings = {}
         try:
-            frame_results = detect_triad_frame(sample.media_path, conf_thresh=conf_thresh, models=selected_models, timings=timings)
+            from app.services.model_registry import checkpoint_scope
+            with checkpoint_scope(dataset_id):
+                frame_results = detect_triad_frame(sample.media_path, conf_thresh=conf_thresh, models=selected_models, timings=timings)
         except Exception as exc:
             sample.inference_state = {**(sample.inference_state or {}), **{m: {'status': 'ERROR', 'error': str(exc)} for m in selected_models}}
             db.commit()
@@ -271,11 +302,14 @@ def run_dataset_triad_inference(
                    Prediction.source_model.startswith('ensemble_')))
         state = dict(sample.inference_state or {})
         for model_name, boxes in frame_results.items():
-            checkpoint = str(get_yolo_weights_path(model_name)) if model_name in ('yolo26n', 'yolo26s') else (str(get_rtdetr_weights_path()) if model_name == 'rtdetr_l' else 'torchvision/FasterRCNN_MobileNet_V3_Large_FPN_Weights.DEFAULT')
+            from app.services.model_registry import active_checkpoint
+            trained = active_checkpoint(model_name, dataset_id)
+            checkpoint = trained['path'] if trained else (str(get_yolo_weights_path(model_name)) if model_name in ('yolo26n', 'yolo26s') else (str(get_rtdetr_weights_path()) if model_name == 'rtdetr_l' else 'torchvision/FasterRCNN_MobileNet_V3_Large_FPN_Weights.DEFAULT'))
             from app.services.provenance import detector_provenance
             provenance = {**detector_provenance(checkpoint), 'conf_thresh': conf_thresh, 'inference_seconds': timings.get(model_name),
                           'completed_at': datetime.now(timezone.utc).isoformat()}
-            state = activate_yolo_state(state, model_name, {'status': 'SUCCESS', 'device': inference_device() if model_name.startswith('yolo26') else 'cpu/default', 'imgsz': 640 if model_name.startswith('yolo26') else None, **provenance})
+            provenance['training_job_id'] = trained['job_id'] if trained else None
+            state = activate_yolo_state(state, model_name, {'status': 'SUCCESS', 'device': inference_device(), 'imgsz': 640 if model_name.startswith('yolo26') else None, **provenance})
             for box in boxes:
                 db.add(Prediction(sample_id=sample.id, label=box['label'], geometry=box['geometry'],
                                   confidence=box['confidence'], source_model=model_name, extra_data=provenance))

@@ -32,7 +32,7 @@ export function QCEvaluationPanel({ datasetId }: { datasetId: number }) {
       api<{ models: string[]; active_models?: string[] }>(`/datasets/${datasetId}/ensemble/models`),
     ]);
     setData(evaluations); setAcceptance(history);
-    const available = sources.models.filter(m => !m.startsWith('ensemble_') && !m.startsWith('synthetic'));
+    const available = sources.models.filter(m => !m.startsWith('ensemble_') && !m.startsWith('synthetic') && !m.toLowerCase().startsWith('yolov8'));
     const active = (sources.active_models || available).filter(m => available.includes(m));
     setModels(available);
     setBaseline(current => available.includes(current) ? current : (active.find(m => m.includes('yolo')) || available[0] || ''));

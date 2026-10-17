@@ -12,11 +12,11 @@ from app.models import Dataset, Sample, Prediction
 
 def test_wbf_tier_1_high_consensus():
     """Two models detect the same car with high overlap and confidence -> Tier 1."""
-    box_yolo = DetectionBox(label="car", confidence=0.92, x1=10.0, y1=10.0, x2=50.0, y2=50.0, source_model="yolov8")
+    box_yolo = DetectionBox(label="car", confidence=0.92, x1=10.0, y1=10.0, x2=50.0, y2=50.0, source_model="yolo26n")
     box_rtdetr = DetectionBox(label="car", confidence=0.88, x1=12.0, y1=11.0, x2=49.0, y2=51.0, source_model="rt-detr")
 
     fused = weighted_box_fusion(
-        {"yolov8": [box_yolo], "rt-detr": [box_rtdetr]},
+        {"yolo26n": [box_yolo], "rt-detr": [box_rtdetr]},
         iou_threshold=0.55,
         confidence_threshold=0.30,
     )
@@ -26,18 +26,18 @@ def test_wbf_tier_1_high_consensus():
     assert fb.label == "car"
     assert fb.tier == 1
     assert fb.num_models_agreed == 2
-    assert set(fb.contributing_models) == {"yolov8", "rt-detr"}
+    assert set(fb.contributing_models) == {"yolo26n", "rt-detr"}
     assert 10.0 < fb.x1 < 12.0
     assert 10.0 < fb.y1 < 11.0
 
 
 def test_wbf_tier_2_class_disagreement():
     """Two models detect an object at same spot but disagree on class -> Tier 2."""
-    box_yolo = DetectionBox(label="car", confidence=0.90, x1=10.0, y1=10.0, x2=50.0, y2=50.0, source_model="yolov8")
+    box_yolo = DetectionBox(label="car", confidence=0.90, x1=10.0, y1=10.0, x2=50.0, y2=50.0, source_model="yolo26n")
     box_rtdetr = DetectionBox(label="truck", confidence=0.85, x1=12.0, y1=11.0, x2=49.0, y2=52.0, source_model="rt-detr")
 
     fused = weighted_box_fusion(
-        {"yolov8": [box_yolo], "rt-detr": [box_rtdetr]},
+        {"yolo26n": [box_yolo], "rt-detr": [box_rtdetr]},
         iou_threshold=0.55,
     )
 
@@ -51,18 +51,18 @@ def test_wbf_tier_2_class_disagreement():
 
 def test_wbf_tier_3_single_model():
     """Only one model detects an object -> Tier 3."""
-    box_yolo = DetectionBox(label="traffic sign", confidence=0.65, x1=100.0, y1=100.0, x2=130.0, y2=130.0, source_model="yolov8")
+    box_yolo = DetectionBox(label="traffic sign", confidence=0.65, x1=100.0, y1=100.0, x2=130.0, y2=130.0, source_model="yolo26n")
 
     fused = weighted_box_fusion(
-        {"yolov8": [box_yolo], "rt-detr": []},
+        {"yolo26n": [box_yolo], "rt-detr": []},
         iou_threshold=0.55,
     )
 
     assert len(fused) == 1
     fb = fused[0]
     assert fb.tier == 3
-    assert fb.contributing_models == ["yolov8"]
-    assert "Only detected by yolov8" in fb.tier_reason
+    assert fb.contributing_models == ["yolo26n"]
+    assert "Only detected by yolo26n" in fb.tier_reason
 
 
 def test_wbf_weights_influence():
@@ -99,7 +99,7 @@ def test_api_ensemble_endpoints(client, db_session):
         label="car",
         confidence=0.90,
         geometry={"x1": 10.0, "y1": 10.0, "x2": 50.0, "y2": 50.0},
-        source_model="yolov8"
+        source_model="yolo26n"
     )
     # Model 2 prediction
     p2 = Prediction(
@@ -116,8 +116,8 @@ def test_api_ensemble_endpoints(client, db_session):
     res = client.get(f"/api/datasets/{ds.id}/ensemble/models")
     assert res.status_code == 200
     data = res.json()
-    assert set(data["models"]) == {"rt-detr", "yolov8"}
-    assert data["counts"]["yolov8"] == 1
+    assert set(data["models"]) == {"rt-detr", "yolo26n"}
+    assert data["counts"]["yolo26n"] == 1
     assert data["counts"]["rt-detr"] == 1
 
     # 2. Test POST /api/datasets/{id}/ensemble/run
@@ -153,7 +153,7 @@ def test_qc_audit_prioritizes_ensemble_and_avoids_multi_model_clutter(client, db
         label="pedestrian",
         confidence=0.89,
         geometry={"x1": 50.0, "y1": 50.0, "x2": 80.0, "y2": 150.0},
-        source_model="yolov8n"
+        source_model="yolo26n"
     )
     p2 = Prediction(
         sample_id=sample.id,

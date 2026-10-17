@@ -1,0 +1,279 @@
+{
+  "status": "COMPLETED",
+  "created_at": "2026-10-14T22:17:37.112300+00:00",
+  "config": {
+    "baseline_model": "yolo26n",
+    "models": [
+      "yolo26n",
+      "fasterrcnn_mobilenet_v3",
+      "rtdetr_l"
+    ],
+    "sample_limit": 15,
+    "repeats": 4,
+    "seed": 42,
+    "gaussian_sigma": 8,
+    "brightness_delta": 0.15,
+    "blur_radius": 0.7,
+    "confidence": 0.35,
+    "fusion_iou": 0.55,
+    "benchmark_id": null
+  },
+  "summary": {
+    "single_model_once": {
+      "frame_count": 15,
+      "detections": 277,
+      "detector_calls": 15,
+      "inference_seconds": 2.1574770000024728,
+      "fusion_seconds": 0.0012603000013768906,
+      "qc_seconds": 0.001527800004623714,
+      "qc_issues": null,
+      "detection_metrics": null,
+      "qc_metrics": null,
+      "agreement_with_single_once": {
+        "tp": 277,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "reference_is_ground_truth": false
+      },
+      "inference_seconds_per_frame": 0.14383180000016485,
+      "relative_inference_cost": 1.0
+    },
+    "single_model_repeated_clean": {
+      "frame_count": 15,
+      "detections": 277,
+      "detector_calls": 60,
+      "inference_seconds": 7.953388800004177,
+      "fusion_seconds": 0.0019371000016690232,
+      "qc_seconds": 0.0017366000065521803,
+      "qc_issues": null,
+      "detection_metrics": null,
+      "qc_metrics": null,
+      "agreement_with_single_once": {
+        "tp": 277,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "reference_is_ground_truth": false
+      },
+      "inference_seconds_per_frame": 0.5302259200002785,
+      "relative_inference_cost": 3.6864303999509898
+    },
+    "single_model_repeated_perturbed": {
+      "frame_count": 15,
+      "detections": 290,
+      "detector_calls": 60,
+      "inference_seconds": 9.496214400011013,
+      "fusion_seconds": 0.05585559999781253,
+      "qc_seconds": 0.0015346999971370678,
+      "qc_issues": null,
+      "detection_metrics": null,
+      "qc_metrics": null,
+      "agreement_with_single_once": {
+        "tp": 276,
+        "fp": 14,
+        "fn": 1,
+        "precision": 0.9517241379310345,
+        "recall": 0.9963898916967509,
+        "f1": 0.9735449735449735,
+        "reference_is_ground_truth": false
+      },
+      "inference_seconds_per_frame": 0.6330809600007342,
+      "relative_inference_cost": 4.40153679506207
+    },
+    "multi_model_once": {
+      "frame_count": 15,
+      "detections": 1022,
+      "detector_calls": 45,
+      "inference_seconds": 41.05148699999336,
+      "fusion_seconds": 0.2609058000070945,
+      "qc_seconds": 0.006669199998214026,
+      "qc_issues": null,
+      "detection_metrics": null,
+      "qc_metrics": null,
+      "agreement_with_single_once": {
+        "tp": 273,
+        "fp": 749,
+        "fn": 4,
+        "precision": 0.2671232876712329,
+        "recall": 0.9855595667870036,
+        "f1": 0.42032332563510394,
+        "reference_is_ground_truth": false
+      },
+      "inference_seconds_per_frame": 2.7367657999995574,
+      "relative_inference_cost": 19.02754328317118
+    },
+    "multi_model_repeated_clean": {
+      "frame_count": 15,
+      "detections": 1022,
+      "detector_calls": 180,
+      "inference_seconds": 170.30179909999788,
+      "fusion_seconds": 0.2298547000009421,
+      "qc_seconds": 0.006426900003134506,
+      "qc_issues": null,
+      "detection_metrics": null,
+      "qc_metrics": null,
+      "agreement_with_single_once": {
+        "tp": 273,
+        "fp": 749,
+        "fn": 4,
+        "precision": 0.2671232876712329,
+        "recall": 0.9855595667870036,
+        "f1": 0.42032332563510394,
+        "reference_is_ground_truth": false
+      },
+      "inference_seconds_per_frame": 11.353453273333193,
+      "relative_inference_cost": 78.93562670647367
+    },
+    "multi_model_repeated_perturbed": {
+      "frame_count": 15,
+      "detections": 1148,
+      "detector_calls": 180,
+      "inference_seconds": 162.7268520999878,
+      "fusion_seconds": 0.9535279000047012,
+      "qc_seconds": 0.012158500001532957,
+      "qc_issues": null,
+      "detection_metrics": null,
+      "qc_metrics": null,
+      "agreement_with_single_once": {
+        "tp": 274,
+        "fp": 874,
+        "fn": 3,
+        "precision": 0.23867595818815332,
+        "recall": 0.9891696750902527,
+        "f1": 0.38456140350877194,
+        "reference_is_ground_truth": false
+      },
+      "inference_seconds_per_frame": 10.848456806665855,
+      "relative_inference_cost": 75.42460573151014
+    }
+  },
+  "total_frames": 15,
+  "processed_frames": 15,
+  "warmup_seconds": 8.673010700000304,
+  "error": null,
+  "quality_measured": false,
+  "notes": [
+    "Repeated views are not independent detectors. Each physical model has one final vote.",
+    "Agreement with baseline is consistency, not accuracy. Quality metrics require independent Golden.",
+    "CPU wall time includes preprocessing inside detectors; warm-up is separate. No operational dataset is modified."
+  ],
+  "provenance": {
+    "yolo26n": {
+      "checkpoint": "D:\\AI\\repo\\Build_Phase\\AnnoPilot-qminh\\backend\\models\\yolo26n.pt",
+      "checkpoint_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+      "package_versions": {
+        "torch": "2.14.1",
+        "torchvision": "0.29.1",
+        "ultralytics": "8.4.174",
+        "opencv-python": "5.0.0.93"
+      }
+    },
+    "fasterrcnn_mobilenet_v3": {
+      "checkpoint": "C:\\Users\\vumin\\.cache\\torch\\hub\\checkpoints\\fasterrcnn_mobilenet_v3_large_fpn-fb6a3cc7.pth",
+      "checkpoint_sha256": "fb6a3cc702b1df54c18a44b26708cd083614211062d0c36d2ca7bf9270df3533",
+      "package_versions": {
+        "torch": "2.14.1",
+        "torchvision": "0.29.1",
+        "ultralytics": "8.4.174",
+        "opencv-python": "5.0.0.93"
+      }
+    },
+    "rtdetr_l": {
+      "checkpoint": "D:\\AI\\repo\\Build_Phase\\AnnoPilot-qminh\\backend\\models\\rtdetr-l.pt",
+      "checkpoint_sha256": "6de60b10d4bc566f00cda0f5b4d64afe4b66d48dc9695d2171effb7859d8e73f",
+      "package_versions": {
+        "torch": "2.14.1",
+        "torchvision": "0.29.1",
+        "ultralytics": "8.4.174",
+        "opencv-python": "5.0.0.93"
+      }
+    }
+  },
+  "runtime": {
+    "yolo_device": "cpu",
+    "torch_threads": 8,
+    "platform": "Windows-11-10.0.26200-SP0"
+  },
+  "elapsed_seconds": 430.40181009999833,
+  "raw_report": ".runtime/wbf-experiments/demo-real-15-final.json",
+  "images": [
+    {
+      "file_name": "frame_00.jpg",
+      "sha256": "662c202373ccab59be9b30e9dc40f88e121ae914d1f899cb7ed7431a480cd35a"
+    },
+    {
+      "file_name": "frame_01.jpg",
+      "sha256": "0982d710d32eb5a8bf40f2f552d1d410ae25f49a7b5f5301d6c2200f05fa86d7"
+    },
+    {
+      "file_name": "frame_02.jpg",
+      "sha256": "0c36c348ca6348e12c587d0905f8dde1aa5d4ec95dcef21843cbe3f6d184ed90"
+    },
+    {
+      "file_name": "frame_03.jpg",
+      "sha256": "ba4b9f8348fcf4c62a823e72060ba7f4fee29771b4bc18b605d5c56305226c03"
+    },
+    {
+      "file_name": "frame_04.jpg",
+      "sha256": "28ded77ad11eba61944170778a1a2dca69fc8816fd640b68005925bb07e74bf4"
+    },
+    {
+      "file_name": "frame_05.jpg",
+      "sha256": "9d0cb69663f5415232007bbedea2ed6b52e6b233bc47a8a52081038758836bd9"
+    },
+    {
+      "file_name": "frame_06.jpg",
+      "sha256": "9c010e61acb96230d1e642ead60d43c061fe6ddad5e4ed62b0b53b1933f1bb91"
+    },
+    {
+      "file_name": "frame_07.jpg",
+      "sha256": "bc35e809493e010cae34263307682274ef3857efb0732f6c7a965a42e66f7dbb"
+    },
+    {
+      "file_name": "frame_08.jpg",
+      "sha256": "0dee35ce0da39285bd9a21cb326b1d1c17a270ec255ae6d05a0718318b6d699d"
+    },
+    {
+      "file_name": "frame_09.jpg",
+      "sha256": "ede79b43511d8a2c9466c6d3f8c34d2e9f2eb8d886faf76d7043d925b7f19e22"
+    },
+    {
+      "file_name": "frame_10.jpg",
+      "sha256": "8c540318b5bfcb720c24873ec504f503210cfed7846e6af1aaebf1e3755ea042"
+    },
+    {
+      "file_name": "frame_11.jpg",
+      "sha256": "9d9e33eb400919b8f978676b12bb5d1c17f6ab63ca46e96d45bd7ecee314d147"
+    },
+    {
+      "file_name": "frame_12.jpg",
+      "sha256": "1058d3f0d5c66f2566c1ad1222b5f531b7c98c4708f83c385b86221061faa262"
+    },
+    {
+      "file_name": "frame_13.jpg",
+      "sha256": "4548e834e94aa6fb9da87fc144c95218722921975bb3916918998cd1ab34b5c4"
+    },
+    {
+      "file_name": "frame_14.jpg",
+      "sha256": "4085da8ec23cd17601f7df5cc3d469e3888a01f551347f7affdc1d976c668a4d"
+    }
+  ],
+  "total_measured_detector_calls": 540,
+  "single_clean_exact_match": true,
+  "multi_clean_exact_match": true,
+  "validation": {
+    "backend_tests_passed": 89,
+    "frontend_build": "TypeScript + Vite passed; output .runtime/build-wbf-20261015",
+    "real_api_smokes": [
+      "standard triad/WBF, one image",
+      "experiment POST/status/download, six arms, one image"
+    ],
+    "golden_quality_benchmark": false,
+    "browser_automation": false
+  }
+}

@@ -1,6 +1,46 @@
 # AnnoPilot Development Handoff
 
-Last verified: 2026-10-13, Asia/Saigon.
+## Training UI and automatic checkpoint integration — 2026-10-16
+
+User explicitly expanded scope to in-app model training, full retirement of YOLOv8 and CPU/CUDA support. This supersedes the historical no-training scope below. See `doc/training.md`.
+
+Model QC now has a compact TrainingPanel (model, presets, reviewed-label confirmation; optional technical settings). Backend persists jobs/progress in SQLite and launches an isolated worker process, with cancel, heartbeat/dead-worker recovery and a unique global training slot. Supports YOLO26n/s, RT-DETR-l and Faster R-CNN. Data snapshots exclude registered Golden images and byte-identical duplicates, split train/val without overlap, and validate class/geometry. A completed checkpoint is reloaded/inferred, then registered automatically for that dataset/family; source predictions are marked STALE and must be rerun. Registry selection is used by YOLO queue/frame QC, triad and optical experiments. Original weights and older checkpoint versions remain selectable. Do not count validation metrics as independent Golden quality.
+
+Removed old training/export scripts, YOLOv8 weights (including historical train-run weights) and ONNX decoder. Imports/evaluation/ensemble reject legacy model sources; existing audit/history DB rows are not relabeled or deleted. All three inference adapters now use CPU/CUDA selection, including moving TorchVision model/input to the actual device.
+
+Real isolated smoke passed on CPU for all four supported model choices: one training epoch, export, registration, and actual QC inference using the generated checkpoint/hash. Artifacts: `.runtime/training-smoke-a46570e2-d006-4938-b6c0-5ff7dfa21dfa/smoke.json` (n/RT-DETR/Faster R-CNN) and `.runtime/training-smoke-d4ed6676-1558-4a14-8b80-7cfae94c274b/smoke.json` (s). Synthetic fixtures are technical feasibility evidence only, not model-quality validation.
+
+NVIDIA RTX 3050 Laptop 4096 MiB is present, but current torch is `2.14.1+cpu`. Outbound pip connection to download.pytorch.org is blocked with WinError 10013; no CUDA wheel installed or real GPU training verified. `Install-GPU.ps1` installs a CUDA wheel pair and verifies a GPU tensor when run outside that network restriction. Do not claim GPU verification from device-routing mocks.
+
+Validation: 120 backend tests passed and final frontend production build passed; 13 training/device tests were rerun successfully after the final explicit-device adjustment. Summary: `backend/benchmarks/training-smoke-summary.json`. Browser HTTP preview was reachable in an isolated fixture, but Edge renderer could not complete page initialization in this sandbox; no full browser training-flow pass is claimed. Temporary preview servers/browser were stopped. GPU setup PowerShell syntax passed; CUDA install remains blocked by network access.
+
+Last verified: 2026-10-16, Asia/Saigon.
+
+## CVAT two-way flow audit and corrections (2026-10-15)
+
+See `doc/cvat-data-flow.md` for the exact workflow and limits. Initial dataset/media import is still manual CVAT images XML + images/ZIP upload. Live sync updates existing samples only. The isolated perturbation experiment reports do not feed operational Prediction rows; use ordinary WBF before pushing pre-labels.
+
+Added shared `services/cvat_api.py`: validates Job ownership/range, reads Task frame metadata, maps image names uniquely, checks image dimensions, and follows label pagination. Task scope stays Task scope; push no longer selects the first job. Segment IDs are no longer parsed as Job IDs; only explicit job metadata/URLs qualify. Config can clear a Job ID and partial updates no longer reset the server URL.
+
+Live attributes become dicts with names; raw shape IDs/attributes remain in metadata. File sync recognizes declaration-free XML, rejects empty/incomplete/unmatched snapshots, matches names rather than unrelated numeric frame IDs, and distinguishes file snapshots from live verification in origin/review notes. Sync/push validation errors return 422; server failures return 502 with database rollback.
+
+Append remains create-only: exact duplicate boxes are skipped; known local Accept wrong-class changes are rejected if the old class box is still on CVAT. Replace overwrites unrotated rectangles only for selected dataset frames, preserves other frames/non-rectangle shapes/tags, and refuses video-track round-trip. Pre-label push rejects unfused multiple detectors and stale/inactive fused provenance; synthetic/inactive raw sources are excluded. Reviewer edits in CVAT -> Save -> live pull/verify is the preferred correction flow. Pull before making local edits, not over local edits that have not been pushed.
+
+UI now contains a CVAT flow explainer, clearer source/mode names, and explicit manual-resolution labels. Full backend suite: **103 passed**. Frontend TypeScript/Vite build passed to `.runtime/build-cvat-final-a`. New regression tests use a stateful fake CVAT to exercise push -> simulated remote edit -> pull -> retry, mapping, labels, attributes, partial replace, track rejection and config clearing. **No real team CVAT server round-trip or external push was performed in this audit.** No production dataset was changed. Restart the API to use the new code; verify with a designated demo Task before marking live CVAT QA complete.
+
+## Real WBF and perturbation experiment (2026-10-15)
+
+User prioritized real Multi-Model WBF, repeated inference, and Gaussian + brightness + mild blur. Added an isolated experiment service, validated request schema, async API/job reports, a panel at the top of the Multi-Model WBF modal, and `backend/scripts/benchmark_wbf_perturbations.py`. See `doc/wbf-perturbation-experiment.md` for protocol and commands.
+
+Six arms compare one/multiple physical detectors under one original pass, repeated clean passes, and original + perturbed passes. Default 4 views, sigma 8, brightness +15%, blur radius .7, seed 42, confidence .35, fusion IoU .55, equal model weights. Fuse temporal views per physical model before cross-model fusion; identical repeated outputs preserve distinct overlapping detections. Repeated views never become independent detector votes. Added a lock around cached triad inference to avoid mutable-predictor races.
+
+Experiment jobs snapshot the selected images/annotations/optional independent Golden, save raw per-view predictions/provenance/config/timings and metrics under `.runtime/wbf-experiments`, and never change operational annotation/prediction/issue rows or push CVAT. Reports persist; active jobs do not resume after backend restart. Without independent Golden, quality metrics remain null; agreement with the single-pass baseline is consistency only. CLI without annotation snapshot does not invent QC errors.
+
+Verified: standard `/ensemble/run-triad` executed real YOLO26n/Faster R-CNN/RT-DETR on one image in an isolated SQLite database, persisted all three physical sources plus WBF (116 raw detections, 62 fused, default triad weights). Experiment POST/status/report endpoints also completed six real-inference arms on one image in another isolated database. CPU checkpoints/dependencies were already present. Production database was not opened by these smoke scripts.
+
+Software validation after the identical-pass fix: full pytest **89 passed**. Used workspace-local `--basetemp` and `-p no:cacheprovider` because default user Temp/cache paths denied access. TypeScript/Vite production build passed with `npm.cmd run build -- --outDir ../.runtime/build-wbf-20261015`; default `dist/assets` cleanup was denied by existing filesystem permissions. No browser automation was available; UI was compiled, real execution was verified through API and CLI. Restart API before using new endpoints; no servers were left running by these checks.
+
+Final real run completed on 15 demo images: **540 measured detector calls + 3 warm-up calls**. Single original / repeated clean / repeated perturbed produced **277 / 277 / 290** boxes; multi-model WBF original / repeated clean / repeated perturbed produced **1022 / 1022 / 1148** boxes. Clean-repeat predictions exactly matched their single-original controls for all 15 frames. Raw report: `.runtime/wbf-experiments/demo-real-15-final.json`; compact manifest/summary: `backend/benchmarks/wbf-perturbations-summary.json`; interpretation: `doc/wbf-experiment-results.md`. Times were measured during the working session with some early concurrent checks, so treat them as operational observations. This is inference feasibility/consistency evidence, not independent Golden quality validation. Ordinary queue still has no perturbation stage, durable resume, per-frame automatic CVAT issue push, or export-blocking Quality Gate.
 
 ## Current direction and implementation
 
@@ -22,7 +62,7 @@ YOLO26 migration: official `.pt` weights downloaded to `backend/models`, ignored
 
 Hardware: i5-12450H, 15.71 GiB RAM, RTX 3050 Laptop 4 GiB. Installed torch is `2.14.1+cpu`, so GPU remains unused. Measured CPU mean at imgsz 640: YOLO26n 85.40 ms/image, YOLO26s 165.08 ms/image; isolated process peak RSS 395.6/481.7 MiB. Report: `backend/benchmarks/yolo26-hardware.json`; protocol and rerun command: `doc/yolo26-hardware.md`. These numbers measure inference feasibility, not QC recall/precision or full ensemble throughput.
 
-Restart the backend to initialize new tables/column. Read `doc/project-direction.md` and `doc/huong-dan-su-dung.md` for the current protocol. Remaining work: independently verify a real golden set, run baseline/pilot experiments, calibrate risk/thresholds and measure review/acceptance outcomes. Durable queue resume, automatic per-frame CVAT push/issues, TTA and export-blocking Quality Gate remain future work.
+Restart the backend to initialize new tables/column. Read `doc/project-direction.md` and `doc/huong-dan-su-dung.md` for the current protocol. Remaining work: independently verify a real golden set, run quality experiments, calibrate risk/thresholds and measure review/acceptance outcomes. Durable queue resume, automatic per-frame CVAT push/issues, TTA in the operational queue and export-blocking Quality Gate remain future work; the separate real-model perturbation experiment above is now implemented.
 
 ## Historical handoff (2026-10-03)
 

@@ -81,6 +81,7 @@ export type Sample = {
   qc_score?: number;
   qc_severity?: 'HIGH' | 'MEDIUM' | 'LOW' | 'CLEAN';
   qc_issue_count?: number;
+  qc_issue_counts?: { missing: number; wrong: number; resolved: number; total: number };
   frame_number?: number | null;
   cvat_url?: string | null;
   media_url: string | null;

@@ -3347,3 +3347,25 @@ pre {
 .wbf-experiment-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem; }
 .wbf-experiment-panel label { display: flex; flex-direction: column; gap: .35rem; margin-bottom: .75rem; }
 .wbf-experiment-panel table { min-width: 850px; }
+
+/* Short explanations stay beside the actions they explain. */
+.beginner-guide { padding: 1rem 1.25rem; margin: 1rem 0; }
+.beginner-guide h2 { font-size: 1rem; margin: 0 0 .85rem; }
+.beginner-paths { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.beginner-paths > div { padding-left: .8rem; border-left: 3px solid var(--border); }
+.beginner-paths strong { font-size: .9rem; }
+.beginner-paths p, .beginner-guide > p { margin: .45rem 0 0; font-size: .85rem; line-height: 1.65; }
+.beginner-guide > p { margin-top: 1rem; }
+.beginner-callout { padding: .85rem 1rem; border: 1px solid var(--border); border-radius: 8px; line-height: 1.65; font-size: .9rem; }
+.advanced-options { padding: .9rem 0; margin-bottom: .8rem; border-top: 1px solid var(--border); }
+.advanced-options > summary { cursor: pointer; font-weight: 600; line-height: 1.5; }
+.advanced-options[open] > summary { margin-bottom: 1rem; }
+.plain-steps { padding-left: 1.3rem; font-size: .9rem; line-height: 1.7; }
+.plain-steps li + li { margin-top: .4rem; }
+.qc-evaluation-controls label { flex: 1 1 210px; min-width: 0; }
+.qc-evaluation-controls label:has(input[type="checkbox"]) { flex: 0 1 auto; }
+.qc-evaluation-panel p { line-height: 1.65; }
+.qc-evaluation-panel table { min-width: 1000px; }
+.golden-format-example { white-space: pre-wrap; overflow-wrap: anywhere; padding: 1rem; background: var(--surface-secondary); border-radius: 8px; font-size: .8rem; }
+.modal-actions { flex-wrap: wrap; gap: .7rem; }
+@media (max-width: 900px) { .beginner-paths { grid-template-columns: 1fr; } }

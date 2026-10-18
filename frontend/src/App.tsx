@@ -39,6 +39,7 @@ import {
   Cell,
 } from "recharts";
 import { api, json } from "./api";
+import { displayLabel } from "./uiText";
 import type { Dataset, Sample, Run, Reviewer, Settings } from "./types";
 import {
   usePageNavigation,
@@ -63,8 +64,8 @@ const nav = [
 ] as const;
 const colors = ["#38bdf8", "#818cf8", "#2dd4bf", "#fb923c", "#f472b6"];
 const fmt = (n: number | null | undefined) =>
-  n == null ? "Unavailable" : n.toFixed(1);
-const title = (s: string) => s.replaceAll("_", " ").replaceAll(".", " · ");
+  n == null ? "Chưa có dữ liệu" : n.toFixed(1);
+const title = displayLabel;
 const Badge = ({ level }: { level: string }) => (
   <span className={"badge " + level.toLowerCase()}>{title(level)}</span>
 );
@@ -154,16 +155,16 @@ function SampleTable({
       <table>
         <thead>
           <tr>
-            {review && <th>Priority</th>}
-            <th>Sample</th>
-            <th>Task</th>
-            <th>Annotations</th>
-            <th>Visual</th>
-            <th>Annotation</th>
-            <th>Difficulty</th>
-            <th>Level</th>
-            {rows.some((r) => r.sampling_reason) && <th>Selection</th>}
-            {review && <th>Status</th>}
+            {review && <th>Ưu tiên</th>}
+            <th>Ảnh / mẫu</th>
+            <th>Loại dữ liệu</th>
+            <th>Nhãn</th>
+            <th>Đặc điểm ảnh</th>
+            <th>Đặc điểm nhãn</th>
+            <th>Độ khó</th>
+            <th>Mức độ</th>
+            {rows.some((r) => r.sampling_reason) && <th>Cách chọn</th>}
+            {review && <th>Trạng thái</th>}
           </tr>
         </thead>
         <tbody>
@@ -186,7 +187,7 @@ function SampleTable({
                     <strong>{s.file_name}</strong>
                     <small>
                       #{s.id}
-                      {s.rare_classes.length > 0 ? " · Rare class" : ""}
+                      {s.rare_classes.length > 0 ? " · Có loại vật thể hiếm" : ""}
                     </small>
                   </div>
                 </div>
@@ -214,8 +215,8 @@ function SampleTable({
     <Empty
       text={
         review
-          ? "No assignments in this reviewer’s queue."
-          : "No samples match this view."
+          ? "Người kiểm tra này chưa được phân công mẫu nào."
+          : "Không có mẫu phù hợp với bộ lọc."
       }
     />
   );
@@ -286,7 +287,7 @@ export default function App() {
     }
   }
   useEffect(() => {
-    void act("Loading workspace…", () => load());
+    void act("Đang tải không gian làm việc…", () => load());
   }, []);
 
   // Keyboard shortcut Ctrl+B / Cmd+B to toggle sidebar
@@ -325,7 +326,7 @@ export default function App() {
     setUpload(true);
   };
   const open = (s: Sample) => {
-    void act("Loading sample…", async () => {
+    void act("Đang tải ảnh và nhãn…", async () => {
       const data = await api<Sample>(`/samples/${s.id}`);
       setDetail({ ...data, ...(s.assignment_id ? s : {}) });
     });
@@ -343,7 +344,7 @@ export default function App() {
     else {
       setDetail(null);
       setNotice(
-        "Review queue completed. Skipped samples remain available in the queue.",
+        "Đã kiểm tra hết danh sách. Các mẫu bỏ qua vẫn được giữ để kiểm tra sau.",
       );
     }
   };
@@ -352,7 +353,7 @@ export default function App() {
       className="button secondary"
       href={`/api/datasets/${active}/exports/${kind}`}
     >
-      <Download size={15} /> Export CSV
+      <Download size={15} /> Tải bảng CSV
     </a>
   );
   return (
@@ -365,14 +366,14 @@ export default function App() {
                 <ScanLine size={20} />
               </div>
               <div className="brand-text">
-                AnnoPilot<small>REVIEW INTELLIGENCE</small>
+                AnnoPilot<small>TRỢ LÝ KIỂM TRA NHÃN</small>
               </div>
             </div>
             <button
               className="nav-toggle-btn"
               onClick={() => setIsNavOpen(false)}
-              title="Thu gọn sidebar (Ctrl+B)"
-              aria-label="Thu gọn sidebar"
+              title="Thu gọn thanh điều hướng (Ctrl+B)"
+              aria-label="Thu gọn thanh điều hướng"
             >
               <PanelLeftClose size={18} />
             </button>
@@ -383,8 +384,8 @@ export default function App() {
               <button
                 className="brand-icon-btn"
                 onClick={() => setIsNavOpen(true)}
-                title="AnnoPilot · Bấm để mở rộng sidebar (Ctrl+B)"
-                aria-label="Mở rộng sidebar"
+                title="AnnoPilot · Mở thanh điều hướng (Ctrl+B)"
+                aria-label="Mở thanh điều hướng"
               >
                 <div className="brand-icon">
                   <ScanLine size={20} />
@@ -395,7 +396,7 @@ export default function App() {
           </>
         )}
 
-        {isNavOpen && <div className="nav-label">WORKSPACE</div>}
+        {isNavOpen && <div className="nav-label">KHÔNG GIAN LÀM VIỆC</div>}
         <nav>
           {nav.map(([name, Icon]) => (
             <button
@@ -403,10 +404,10 @@ export default function App() {
               onClick={() => requestPage(name)}
               className={page === name ? "active" : ""}
               aria-current={page === name ? "page" : undefined}
-              title={name}
+              title={title(name)}
             >
               <Icon size={19} />
-              {isNavOpen && <span>{name}</span>}
+              {isNavOpen && <span>{title(name)}</span>}
               {isNavOpen && page === name && <span className="nav-dot" />}
             </button>
           ))}
@@ -414,36 +415,36 @@ export default function App() {
 
         {isNavOpen ? (
           <div className="sidebar-bottom">
-            <span className="online-dot" /> Local workspace
-            <small>Human judgment. Informed by data.</small>
+            <span className="online-dot" /> Làm việc trên máy này
+            <small>AI gợi ý, bạn quyết định.</small>
           </div>
         ) : (
           <div className="sidebar-collapsed-footer">
             <button
               className="nav-toggle-btn collapsed-expand-btn"
               onClick={() => setIsNavOpen(true)}
-              title="Mở rộng sidebar (Ctrl+B)"
-              aria-label="Mở rộng sidebar"
+              title="Mở thanh điều hướng (Ctrl+B)"
+              aria-label="Mở thanh điều hướng"
             >
               <PanelLeftOpen size={19} />
             </button>
-            <div className="collapsed-status-dot" title="Local workspace · Online" />
+            <div className="collapsed-status-dot" title="Máy chủ cục bộ · Đang kết nối" />
           </div>
         )}
       </aside>
       <div className="main">
         <header>
           <div className="breadcrumb">
-            Workspace <ChevronRight size={14} />
-            <strong>{page}</strong>
+            Không gian làm việc <ChevronRight size={14} />
+            <strong>{title(page)}</strong>
           </div>
           <div className="header-actions">
             {dataset && (
               <select
-                aria-label="Active dataset"
+                aria-label="Bộ dữ liệu đang chọn"
                 value={active || ""}
                 onChange={(e) =>
-                  void act("Switching dataset…", () =>
+                  void act("Đang chuyển bộ dữ liệu…", () =>
                     load(Number(e.target.value)),
                   )
                 }
@@ -457,7 +458,7 @@ export default function App() {
             )}
             <button onClick={() => startUpload()}>
               <Upload size={16} />
-              Upload Dataset
+              Thêm bộ dữ liệu
             </button>
           </div>
         </header>
@@ -498,35 +499,35 @@ export default function App() {
               feature={page}
               onUpload={() => startUpload(page)}
               onCancel={cancelGuard}
-              onRetry={() => void act("Checking dataset status…", () => load())}
+              onRetry={() => void act("Đang kiểm tra bộ dữ liệu…", () => load())}
             >
               <>
-                {dataset && (
+                {dataset && page !== "Model QC" && (
                   <>
                     <div className="page-heading">
                       <div>
                         <div className="eyebrow">
-                          ANNOTATION QUALITY CONTROL
+                          KIỂM SOÁT CHẤT LƯỢNG NHÃN
                         </div>
                         <h1>
                           {page === "Dashboard"
-                            ? "Dataset overview"
+                            ? "Tổng quan bộ dữ liệu"
                             : page === "Workload"
-                              ? "Review Workload Balancer"
-                              : page}
+                              ? "Phân công kiểm tra"
+                              : title(page)}
                         </h1>
                         <p>
                           {page === "Smart Sampling"
-                            ? "WHAT should we review?"
+                            ? "Chọn các mẫu cần kiểm tra trước."
                             : page === "Workload"
-                              ? "WHO reviews it?"
+                              ? "Chia công việc cho từng người kiểm tra."
                               : page === "Review Queue"
-                                ? "WHAT should be reviewed first?"
-                                : "A clear picture of your dataset and the effort ahead."}
+                                ? "Xem các mẫu được ưu tiên kiểm tra."
+                                : "Xem tình trạng dữ liệu và khối lượng cần kiểm tra."}
                         </p>
                       </div>
                       <div className="dataset-status">
-                        <span className="online-dot" /> Analysis complete
+                        <span className="online-dot" /> Đã phân tích
                         <small>
                           {dataset.name} · {dataset.format} ·{" "}
                           {title(dataset.task_type)}
@@ -535,8 +536,7 @@ export default function App() {
                     </div>
                     <div className="principle">
                       <Eye size={16} />
-                      Difficulty estimates review effort. It does not predict
-                      whether an annotation is correct or incorrect.
+                      Độ khó ước tính công sức kiểm tra ảnh. Muốn biết nhãn đúng hay sai, hãy mở mục Kiểm tra nhãn và xem từng nghi vấn.
                     </div>
                   </>
                 )}
@@ -544,35 +544,35 @@ export default function App() {
                   <>
                     <div className="stats">
                       <Metric
-                        label="Total samples"
+                        label="Tổng số mẫu"
                         value={dataset.sample_count}
-                        note={`${dataset.missing_media} without media`}
+                        note={`${dataset.missing_media} mẫu chưa có ảnh / dữ liệu gốc`}
                         icon={<Database />}
                       />
                       <Metric
-                        label="Annotations"
+                        label="Nhãn"
                         value={dataset.annotation_count}
-                        note={`${Object.keys(dataset.classes).length} distinct classes`}
+                        note={`${Object.keys(dataset.classes).length} loại vật thể`}
                         icon={<ScanLine />}
                       />
                       <Metric
-                        label="Average difficulty"
+                        label="Độ khó trung bình"
                         value={fmt(dataset.average_difficulty)}
-                        note="Estimated review effort · /100"
+                        note="Công sức kiểm tra ước tính · thang 100"
                         icon={<ChartNoAxesCombined />}
                       />
                       <Metric
-                        label="Hard samples"
+                        label="Mẫu khó"
                         value={dataset.levels.HARD || 0}
-                        note={`${((100 * (dataset.levels.HARD || 0)) / Math.max(1, dataset.sample_count)).toFixed(1)}% of dataset`}
+                        note={`${((100 * (dataset.levels.HARD || 0)) / Math.max(1, dataset.sample_count)).toFixed(1)}% bộ dữ liệu`}
                         icon={<AlertTriangle />}
                       />
                     </div>
                     <div className="grid two">
                       <section className="card">
                         <CardTitle
-                          title="Difficulty distribution"
-                          sub="Samples by estimated review effort"
+                          title="Phân bố độ khó"
+                          sub="Số mẫu theo công sức kiểm tra ước tính"
                         />
                         <Chart
                           data={Array.from({ length: 10 }, (_, i) => ({
@@ -590,28 +590,28 @@ export default function App() {
                       </section>
                       <section className="card">
                         <CardTitle
-                          title="Review effort mix"
-                          sub="Easy · Medium · Hard · Unavailable"
+                          title="Tỷ lệ mức độ khó"
+                          sub="Dễ · Trung bình · Khó · Chưa có dữ liệu"
                         />
                         <Chart
                           pie
                           data={Object.entries(dataset.levels).map(
-                            ([name, value]) => ({ name, value }),
+                            ([name, value]) => ({ name: title(name), value }),
                           )}
                         />
                         <div className="legend">
                           {Object.entries(dataset.levels).map(([k, v], i) => (
                             <span key={k}>
                               <i style={{ background: colors[i % 5] }} />
-                              {k} <strong>{v}</strong>
+                              {title(k)} <strong>{v}</strong>
                             </span>
                           ))}
                         </div>
                       </section>
                       <section className="card">
                         <CardTitle
-                          title="Class distribution"
-                          sub="Annotation counts from your imported dataset"
+                          title="Phân bố loại vật thể"
+                          sub="Số nhãn theo từng loại vật thể đã nhập"
                         />
                         {dataset.annotation_count ? (
                           <Chart
@@ -620,18 +620,17 @@ export default function App() {
                             )}
                           />
                         ) : (
-                          <Empty text="No valid annotations in this dataset." />
+                          <Empty text="Bộ dữ liệu chưa có nhãn hợp lệ." />
                         )}
                       </section>
                       <section className="card">
                         <CardTitle
-                          title="Dataset insights"
-                          sub="Measured signals, transparent limitations"
+                          title="Thông tin cần chú ý"
+                          sub="Các đặc điểm đo được từ bộ dữ liệu"
                         />
                         <div className="insights">
                           <p>
-                            <span>{dataset.rare_classes.length}</span> rare
-                            classes at the configured threshold.
+                            <span>{dataset.rare_classes.length}</span> loại vật thể hiếm theo ngưỡng đã cài đặt.
                           </p>
                           <p>
                             <span>
@@ -643,22 +642,20 @@ export default function App() {
                                 ).length
                               }
                             </span>{" "}
-                            samples with high visual review difficulty.
+                            mẫu có đặc điểm ảnh khó kiểm tra.
                           </p>
                           <p>
-                            <span>{dataset.missing_media}</span> samples have
-                            unavailable media.
+                            <span>{dataset.missing_media}</span> mẫu chưa có tệp ảnh hoặc dữ liệu gốc.
                           </p>
                           <p>
-                            <span>{dataset.levels.EASY || 0}</span> easy ·{" "}
-                            <span>{dataset.levels.MEDIUM || 0}</span> medium ·{" "}
-                            <span>{dataset.levels.HARD || 0}</span> hard
-                            samples.
+                            <span>{dataset.levels.EASY || 0}</span> dễ ·{" "}
+                            <span>{dataset.levels.MEDIUM || 0}</span> trung bình ·{" "}
+                            <span>{dataset.levels.HARD || 0}</span> mẫu khó.
                           </p>
                           <p>
                             {Object.entries(dataset.annotation_types)
                               .map(([k, v]) => `${title(k)}: ${v}`)
-                              .join(" · ") || "No supported shapes"}
+                              .join(" · ") || "Chưa có hình dạng nhãn được hỗ trợ"}
                           </p>
                         </div>
                       </section>
@@ -667,8 +664,8 @@ export default function App() {
                       {dataset.annotation_count > 0 && (
                         <section className="card">
                           <CardTitle
-                            title="Annotation types"
-                            sub="Normalized shapes across the dataset"
+                            title="Các dạng nhãn"
+                            sub="Dạng nhãn được nhận diện trong bộ dữ liệu"
                           />
                           <Chart
                             data={Object.entries(dataset.annotation_types).map(
@@ -680,8 +677,8 @@ export default function App() {
                       {samples.some((s) => s.visual_difficulty !== null) && (
                         <section className="card">
                           <CardTitle
-                            title="Visual difficulty distribution"
-                            sub="Measured images only; missing media is excluded"
+                            title="Độ khó theo đặc điểm ảnh"
+                            sub="Chỉ tính ảnh có thể đọc được"
                           />
                           <Chart
                             data={Array.from({ length: 5 }, (_, i) => ({
@@ -703,8 +700,7 @@ export default function App() {
                       <details className="card warnings">
                         <summary>
                           <AlertTriangle size={16} />
-                          {dataset.warnings.length} import warnings and
-                          availability notes
+                          {dataset.warnings.length} cảnh báo khi nhập và ghi chú dữ liệu
                         </summary>
                         <ul>
                           {dataset.warnings.map((w, i) => (
@@ -715,8 +711,8 @@ export default function App() {
                     )}
                     <section className="card">
                       <CardTitle
-                        title="Highest effort samples"
-                        sub="A starting point for review — not a prediction of issues"
+                        title="Các mẫu cần nhiều công kiểm tra"
+                        sub="Gợi ý bắt đầu kiểm tra; điểm khó chưa phải kết luận có lỗi"
                       />
                       <SampleTable
                         rows={[...samples]
@@ -743,7 +739,7 @@ export default function App() {
                     <SamplingForm
                       disabled={!!busy}
                       onGenerate={(config) =>
-                        void act("Generating QC sample…", async () => {
+                        void act("Đang chọn mẫu kiểm tra…", async () => {
                           await api(
                             `/datasets/${active}/sampling`,
                             json("POST", config),
@@ -755,16 +751,16 @@ export default function App() {
                     {run ? (
                       <section className="card">
                         <CardTitle
-                          title={`${run.selections.length} selected from ${dataset.sample_count} samples`}
+                          title={`Đã chọn ${run.selections.length} / ${dataset.sample_count} mẫu`}
                           sub={
                             run.needs_regeneration
-                              ? "Needs Regeneration — scores have changed"
-                              : "Deterministic selection · no duplicate samples"
+                              ? "Cần tạo lại danh sách vì điểm đã thay đổi"
+                              : "Chọn có thể lặp lại · Không trùng mẫu"
                           }
                           action={exportLink("smart_sample")}
                         />
                         {run.needs_regeneration && (
-                          <div className="alert">Needs Regeneration</div>
+                          <div className="alert">Cần tạo lại</div>
                         )}
                         <div className="legend">
                           {[
@@ -788,7 +784,7 @@ export default function App() {
                         <SampleTable rows={run.selections} onOpen={open} />
                       </section>
                     ) : (
-                      <Empty text="Set a QC budget and generate your first review subset." />
+                      <Empty text="Chọn số lượng hoặc tỷ lệ mẫu, rồi bấm Tạo danh sách kiểm tra." />
                     )}
                   </>
                 )}
@@ -796,13 +792,13 @@ export default function App() {
                   <>
                     <section className="card">
                       <CardTitle
-                        title="Your review team"
-                        sub="Assignments balance estimated effort across the selected QC subset."
+                        title="Nhóm kiểm tra"
+                        sub="Phân chia các mẫu đã chọn theo công sức kiểm tra ước tính."
                       />
                       <ReviewerForm
                         disabled={!!busy}
                         onAdd={(name) =>
-                          void act("Adding reviewer…", async () => {
+                          void act("Đang thêm người kiểm tra…", async () => {
                             await api(
                               `/datasets/${active}/reviewers`,
                               json("POST", { name }),
@@ -820,7 +816,7 @@ export default function App() {
                               className="icon-button"
                               disabled={!!busy}
                               onClick={() =>
-                                void act("Removing reviewer…", async () => {
+                                void act("Đang xóa người kiểm tra…", async () => {
                                   await api(`/reviewers/${r.id}`, {
                                     method: "DELETE",
                                   });
@@ -841,7 +837,7 @@ export default function App() {
                           run.needs_regeneration
                         }
                         onClick={() =>
-                          void act("Balancing workload…", async () => {
+                          void act("Đang phân công…", async () => {
                             await api(`/datasets/${active}/balance`, {
                               method: "POST",
                             });
@@ -850,16 +846,16 @@ export default function App() {
                         }
                       >
                         <Users size={16} />
-                        Balance workload
+                        Tự động phân công
                       </button>
                       {!run && (
                         <p className="muted">
-                          Generate a Smart Sampling subset first.
+                          Hãy tạo danh sách ở mục Chọn mẫu kiểm tra trước.
                         </p>
                       )}
                       {run?.needs_regeneration && (
                         <p className="warning-text">
-                          QC subset needs regeneration before balancing.
+                          Cần tạo lại danh sách mẫu trước khi phân công.
                         </p>
                       )}
                     </section>
@@ -880,19 +876,19 @@ export default function App() {
                             <section className="card" key={r.id}>
                               <h3>{r.name}</h3>
                               <div className="big-number">
-                                {unavailable ? "Unavailable" : total.toFixed(1)}
-                                <small>Total difficulty</small>
+                                {unavailable ? "Chưa có dữ liệu" : total.toFixed(1)}
+                                <small>Tổng điểm độ khó</small>
                               </div>
                               <p className="muted">
-                                {rows.length} samples · Average{" "}
+                                {rows.length} mẫu · Trung bình{" "}
                                 {unavailable
-                                  ? "Unavailable"
+                                  ? "Chưa có dữ liệu"
                                   : rows.length
                                     ? (total / rows.length).toFixed(1)
                                     : "—"}{" "}
                                 ·{" "}
                                 {rows.filter((s) => s.level === "HARD").length}{" "}
-                                hard
+                                khó
                               </p>
                             </section>
                           );
@@ -903,13 +899,13 @@ export default function App() {
                       <>
                         <section className="card">
                           <CardTitle
-                            title="Estimated review workload"
-                            sub="Sum of assigned sample difficulty"
+                            title="Khối lượng kiểm tra ước tính"
+                            sub="Tổng điểm độ khó của các mẫu được giao"
                           />
                           {assignments.some(
                             (s) => s.overall_difficulty === null,
                           ) ? (
-                            <Empty text="Workload unavailable — regenerate this plan after adjusting scoring weights." />
+                            <Empty text="Chưa có phân công phù hợp. Hãy tạo lại sau khi điều chỉnh trọng số." />
                           ) : (
                             <Chart
                               data={reviewers.map((r) => ({
@@ -930,8 +926,8 @@ export default function App() {
                             title="Assignments"
                             sub={
                               assignments.some((a) => a.needs_regeneration)
-                                ? "Needs Regeneration"
-                                : "Generate a new subset to rebalance after saving review decisions."
+                                ? "Cần tạo lại"
+                                : "Sau khi lưu kết quả kiểm tra, hãy tạo danh sách mẫu mới để phân công lại."
                             }
                             action={exportLink("review_assignments")}
                           />
@@ -939,11 +935,11 @@ export default function App() {
                             <table>
                               <thead>
                                 <tr>
-                                  <th>Sample</th>
-                                  <th>Task</th>
-                                  <th>Difficulty</th>
-                                  <th>Level</th>
-                                  <th>Reviewer</th>
+                                  <th>Ảnh / mẫu</th>
+                                  <th>Loại dữ liệu</th>
+                                  <th>Độ khó</th>
+                                  <th>Mức độ</th>
+                                  <th>Người kiểm tra</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -970,18 +966,18 @@ export default function App() {
                   <>
                     <section className="card">
                       <CardTitle
-                        title="Reviewer priority queue"
-                        sub="Each reviewer’s samples are ordered by difficulty, highest first."
+                        title="Danh sách kiểm tra theo người"
+                        sub="Mẫu khó được xếp trước trong danh sách của mỗi người."
                         action={exportLink("review_results")}
                       />
                       <label>
-                        Reviewer
+                        Người kiểm tra
                         <select
                           value={reviewer || ""}
                           onChange={(e) => setReviewer(Number(e.target.value))}
                         >
                           <option value="" disabled>
-                            Select reviewer
+                            Chọn người kiểm tra
                           </option>
                           {reviewers.map((r) => (
                             <option key={r.id} value={r.id}>
@@ -992,15 +988,14 @@ export default function App() {
                       </label>
                       {queue.some((a) => a.needs_regeneration) && (
                         <div className="alert">
-                          Needs Regeneration — these assignments were based on
-                          previous scores.
+                          Cần tạo lại phân công vì điểm độ khó đã thay đổi.
                         </div>
                       )}
                       <div className="queue-stats">
                         {[
-                          ["Total", queue.length],
+                          ["Tổng", queue.length],
                           [
-                            "Reviewed",
+                            "Đã kiểm tra",
                             queue.filter(
                               (s) =>
                                 s.status === "REVIEWED" ||
@@ -1008,16 +1003,16 @@ export default function App() {
                             ).length,
                           ],
                           [
-                            "Issues found",
+                            "Có lỗi",
                             queue.filter((s) => s.status === "ISSUE_FOUND")
                               .length,
                           ],
                           [
-                            "Pending",
+                            "Chưa kiểm tra",
                             queue.filter((s) => s.status === "PENDING").length,
                           ],
                           [
-                            "Skipped",
+                            "Đã bỏ qua",
                             queue.filter((s) => s.status === "SKIPPED").length,
                           ],
                         ].map(([k, v]) => (
@@ -1047,7 +1042,7 @@ export default function App() {
                       className="secondary"
                       disabled={!!busy}
                       onClick={() =>
-                        void act("Recalculating Difficulty…", async () => {
+                        void act("Đang tính lại độ khó…", async () => {
                           await api(`/datasets/${active}/recalculate`, {
                             method: "POST",
                           });
@@ -1056,7 +1051,7 @@ export default function App() {
                       }
                     >
                       <RotateCcw size={15} />
-                      Recalculate Difficulty
+                      Tính lại độ khó
                     </button>
                     <button
                       className="danger secondary"
@@ -1064,10 +1059,10 @@ export default function App() {
                       onClick={() => {
                         if (
                           window.confirm(
-                            `Delete ${dataset.name} and its analysis, selections and reviews?`,
+                            `Xóa bộ dữ liệu “${dataset.name}” cùng kết quả phân tích, danh sách mẫu và kết quả kiểm tra? Thao tác này không thể hoàn tác.`,
                           )
                         )
-                          void act("Deleting dataset…", async () => {
+                          void act("Đang xóa bộ dữ liệu…", async () => {
                             await api(`/datasets/${active}`, {
                               method: "DELETE",
                             });
@@ -1077,7 +1072,7 @@ export default function App() {
                       }}
                     >
                       <Trash2 size={15} />
-                      Delete Dataset
+                      Xóa bộ dữ liệu
                     </button>
                   </div>
                 )}
@@ -1087,9 +1082,9 @@ export default function App() {
             <>
               <div className="page-heading">
                 <div>
-                  <div className="eyebrow">WORKSPACE PREFERENCES</div>
-                  <h1>Settings</h1>
-                  <p>Customize your interface and scoring preferences.</p>
+                  <div className="eyebrow">TÙY CHỈNH KHÔNG GIAN LÀM VIỆC</div>
+                  <h1>Cài đặt</h1>
+                  <p>Chọn giao diện, cỡ chữ và cách tính độ khó.</p>
                 </div>
               </div>
               <AppearanceSettings />
@@ -1098,42 +1093,41 @@ export default function App() {
                   settings={settings}
                   disabled={!!busy}
                   onSave={(s) =>
-                    void act("Recalculating Difficulty…", async () => {
+                    void act("Đang tính lại độ khó…", async () => {
                       await api("/settings", json("PUT", s));
                       await load();
                       setNotice(
-                        "Settings saved and difficulty recalculated. Existing QC selections and assignments need regeneration.",
+                        "Đã lưu cài đặt và tính lại độ khó. Hãy tạo lại danh sách mẫu và phân công hiện có.",
                       );
                     })
                   }
                 />
               ) : datasetStatus === "error" ? (
                 <section className="card" role="alert">
-                  <h2>Scoring settings unavailable</h2>
+                  <h2>Chưa tải được cài đặt tính điểm</h2>
                   <p>
-                    Appearance works locally. Reconnect to the backend to load
-                    scoring settings.
+                    Bạn vẫn có thể đổi giao diện. Kết nối lại máy chủ để tải cài đặt tính điểm.
                   </p>
                   <button
                     onClick={() =>
-                      void act("Checking dataset status…", () => load())
+                      void act("Đang kiểm tra bộ dữ liệu…", () => load())
                     }
                   >
-                    Retry
+                    Thử lại
                   </button>
                 </section>
               ) : (
                 <div className="busy" role="status">
                   <LoaderCircle className="spin" size={18} />
-                  Loading scoring settings…
+                  Đang tải cài đặt tính điểm…
                 </div>
               )}
             </>
           )}
         </main>
         <footer>
-          AnnoPilot <span>Intelligent Annotation Review Assistant</span>
-          <span>Local · CPU analysis · Human decisions</span>
+          AnnoPilot <span>Trợ lý kiểm tra chất lượng nhãn</span>
+          <span>Xử lý trên máy chủ · AI hỗ trợ · Bạn quyết định</span>
         </footer>
       </div>
       {guardFeature && (
@@ -1149,7 +1143,7 @@ export default function App() {
           disabled={!!busy}
           onClose={() => setUpload(false)}
           onSubmit={(form) =>
-            void act("Uploading and analyzing dataset…", async () => {
+            void act("Đang tải lên và phân tích bộ dữ liệu…", async () => {
               const d = await api<Dataset>("/datasets/upload", {
                 method: "POST",
                 body: form,
@@ -1170,7 +1164,7 @@ export default function App() {
           onClose={() => setDetail(null)}
           onNext={next}
           onReview={(status, note) =>
-            void act("Saving review…", async () => {
+            void act("Đang lưu kết quả kiểm tra…", async () => {
               const saved = await api<Sample>(
                 `/assignments/${detail.assignment_id}/review`,
                 json("PUT", { status, note }),
@@ -1260,47 +1254,47 @@ function SampleBrowser({
   return (
     <section className="card">
       <CardTitle
-        title={difficulty ? "Difficulty explorer" : "Imported samples"}
-        sub={`${rows.length} samples · Click a row to inspect media, annotations and scoring.`}
+        title={difficulty ? "Xem mẫu theo độ khó" : "Các mẫu đã nhập"}
+        sub={`${rows.length} mẫu · Bấm một dòng để xem ảnh, nhãn và cách tính độ khó.`}
       />
       <div className="filters">
         <div className="search">
           <Search size={16} />
           <input
-            aria-label="Search samples"
-            placeholder="Search file name…"
+            aria-label="Tìm mẫu"
+            placeholder="Nhập tên tệp để tìm…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <select
-          aria-label="Difficulty filter"
+          aria-label="Lọc theo độ khó"
           value={level}
           onChange={(e) => setLevel(e.target.value)}
         >
-          <option value="">All levels</option>
+          <option value="">Mọi mức độ</option>
           {["EASY", "MEDIUM", "HARD", "UNAVAILABLE"].map((v) => (
-            <option key={v}>{v}</option>
+            <option key={v} value={v}>{title(v)}</option>
           ))}
         </select>
         <select
-          aria-label="Task filter"
+          aria-label="Lọc theo loại dữ liệu"
           value={task}
           onChange={(e) => setTask(e.target.value)}
         >
-          <option value="">All tasks</option>
+          <option value="">Mọi loại dữ liệu</option>
           {Array.from(new Set(samples.map((s) => s.task_type))).map((v) => (
-            <option key={v}>{v}</option>
+            <option key={v} value={v}>{title(v)}</option>
           ))}
         </select>
         <select
-          aria-label="Sort samples"
+          aria-label="Sắp xếp mẫu"
           value={sort}
           onChange={(e) => setSort(e.target.value)}
         >
-          <option value="desc">Difficulty: high first</option>
-          <option value="asc">Difficulty: low first</option>
-          <option value="name">File name</option>
+          <option value="desc">Khó nhất trước</option>
+          <option value="asc">Dễ nhất trước</option>
+          <option value="name">Tên tệp</option>
         </select>
         <label className="checkbox">
           <input
@@ -1308,7 +1302,7 @@ function SampleBrowser({
             checked={rare}
             onChange={(e) => setRare(e.target.checked)}
           />
-          Rare only
+          Chỉ mẫu có loại vật thể hiếm
         </label>
       </div>
       <SampleTable
@@ -1318,22 +1312,22 @@ function SampleBrowser({
       <div className="pagination">
         <span>
           {rows.length
-            ? `${(page - 1) * 20 + 1}–${Math.min(page * 20, rows.length)} of ${rows.length}`
-            : "0 samples"}
+            ? `${(page - 1) * 20 + 1}–${Math.min(page * 20, rows.length)} / ${rows.length} mẫu`
+            : "0 mẫu"}
         </span>
         <button
           className="secondary"
           disabled={page === 1}
           onClick={() => setPage(page - 1)}
         >
-          Previous
+          Trang trước
         </button>
         <button
           className="secondary"
           disabled={page * 20 >= rows.length}
           onClick={() => setPage(page + 1)}
         >
-          Next
+          Trang sau
         </button>
       </div>
     </section>
@@ -1367,19 +1361,19 @@ function SamplingForm({
       }}
     >
       <CardTitle
-        title="Build your QC subset"
-        sub="Coverage, effort and edge signals — combined into one review plan."
+        title="Chọn mẫu để kiểm tra"
+        sub="Kết hợp mẫu ngẫu nhiên, mẫu khó và trường hợp hiếm thành một danh sách kiểm tra."
       />
       <div className="form-grid">
         <label>
-          Budget type
+          Cách giới hạn số mẫu
           <select value={mode} onChange={(e) => setMode(e.target.value)}>
-            <option value="percentage">Percentage</option>
-            <option value="count">Number of samples</option>
+            <option value="percentage">Theo phần trăm</option>
+            <option value="count">Theo số lượng mẫu</option>
           </select>
         </label>
         <label>
-          QC budget
+          Số lượng / tỷ lệ cần kiểm tra
           <input
             type="number"
             min="1"
@@ -1390,7 +1384,7 @@ function SamplingForm({
           />
         </label>
         <label>
-          Random seed
+          Mã lặp lại cách chọn (seed)
           <input
             type="number"
             required
@@ -1403,10 +1397,10 @@ function SamplingForm({
         {Object.entries(weights).map(([k, v]) => (
           <label key={k}>
             {k === "random"
-              ? "Random coverage"
+              ? "Mẫu ngẫu nhiên"
               : k === "difficulty"
-                ? "High difficulty"
-                : "Rare / edge cases"}{" "}
+                ? "Mẫu khó"
+                : "Trường hợp hiếm"}{" "}
             (%)
             <input
               required
@@ -1423,11 +1417,11 @@ function SamplingForm({
       </div>
       <div className="form-bottom">
         <span className={total === 100 ? "muted" : "warning-text"}>
-          Strategy total: {total}% / 100%
+          Tổng tỷ lệ: {total}% / 100%
         </span>
         <button disabled={disabled || total !== 100}>
           <Shuffle size={16} />
-          Generate QC sample
+          Tạo danh sách kiểm tra
         </button>
       </div>
     </form>
@@ -1453,14 +1447,14 @@ function ReviewerForm({
       <input
         required
         maxLength={100}
-        placeholder="Reviewer name"
-        aria-label="Reviewer name"
+        placeholder="Tên người kiểm tra"
+        aria-label="Tên người kiểm tra"
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
       <button disabled={disabled || !name.trim()}>
         <Plus size={16} />
-        Add reviewer
+        Thêm người kiểm tra
       </button>
     </form>
   );
@@ -1490,16 +1484,15 @@ function SettingsForm({
     >
       <div className="page-heading">
         <div>
-          <div className="eyebrow">EXPLAINABLE HEURISTICS</div>
-          <h2>Scoring settings</h2>
+          <div className="eyebrow">CÁCH TÍNH ĐỘ KHÓ</div>
+          <h2>Cài đặt tính độ khó</h2>
           <p>
-            Save to recalculate all datasets and mark existing review plans for
-            regeneration.
+            Khi lưu, ứng dụng tính lại độ khó cho mọi bộ dữ liệu. Danh sách mẫu và phân công cũ cần tạo lại.
           </p>
         </div>
         <button disabled={disabled || !valid}>
           <RotateCcw size={16} />
-          Save & recalculate
+          Lưu và tính lại
         </button>
       </div>
       <div className="grid two">
@@ -1509,8 +1502,8 @@ function SettingsForm({
               title={title(group)}
               sub={
                 typeof value === "number"
-                  ? "Ratio threshold between 0 and 1"
-                  : "Weights must sum to 1.00; unavailable features are renormalized."
+                  ? "Ngưỡng tỷ lệ từ 0 đến 1"
+                  : "Tổng trọng số phải bằng 1. Đặc điểm thiếu dữ liệu được bỏ qua và cân lại trọng số."
               }
             />
             {typeof value === "number" ? (
@@ -1555,7 +1548,7 @@ function SettingsForm({
                       : "warning-text"
                   }
                 >
-                  Total{" "}
+                  Tổng{" "}
                   {Object.values(value)
                     .reduce((a, b) => a + b, 0)
                     .toFixed(4)}
@@ -1589,11 +1582,11 @@ function UploadDialog({
       >
         <div className="modal-heading">
           <div>
-            <div className="eyebrow">START WITH YOUR DATA</div>
-            <h2 id="upload-title">Upload Dataset</h2>
+            <div className="eyebrow">BẮT ĐẦU VỚI DỮ LIỆU</div>
+            <h2 id="upload-title">Thêm bộ dữ liệu</h2>
           </div>
           <button
-            aria-label="Close upload"
+            aria-label="Đóng cửa sổ thêm dữ liệu"
             className="icon-button"
             disabled={disabled}
             onClick={onClose}
@@ -1602,8 +1595,7 @@ function UploadDialog({
           </button>
         </div>
         <p className="muted">
-          Import existing annotations and their matching media. Analysis runs
-          locally.
+          Thêm tệp nhãn và ảnh tương ứng. Chưa có nhãn? Tạo tác vụ chứa ảnh trên CVAT, xuất gói CVAT for images kèm ảnh (nhãn có thể rỗng), rồi nhập vào đây để tạo nhãn gợi ý bằng AI.
         </p>
         {error && (
           <div className="alert error" role="alert">
@@ -1617,29 +1609,29 @@ function UploadDialog({
           }}
         >
           <label>
-            Dataset name
+            Tên bộ dữ liệu
             <input
               name="name"
-              placeholder="Name your dataset"
+              placeholder="Ví dụ: Ảnh giao thông cần kiểm tra"
               required
               maxLength={200}
             />
           </label>
           <div className="form-grid">
             <label>
-              Annotation type
+              Dạng nhãn
               <select name="task_type">
-                <option value="AUTO">Auto Detect</option>
-                <option value="BBOX_2D">2D Bounding Box</option>
-                <option value="SEGMENTATION">Segmentation</option>
-                <option value="KEYPOINT">Keypoint / Pose</option>
-                <option value="CUBOID_3D">3D Cuboid</option>
+                <option value="AUTO">Tự nhận diện</option>
+                <option value="BBOX_2D">Khung bao vật thể (2D)</option>
+                <option value="SEGMENTATION">Vùng phân đoạn</option>
+                <option value="KEYPOINT">Điểm đặc trưng / tư thế</option>
+                <option value="CUBOID_3D">Khối hộp (3D)</option>
               </select>
             </label>
             <label>
-              Annotation format
+              Định dạng tệp nhãn
               <select name="format">
-                <option value="AUTO">Auto Detect</option>
+                <option value="AUTO">Tự nhận diện</option>
                 {["CVAT", "COCO", "YOLO", "KITTI"].map((f) => (
                   <option key={f}>{f}</option>
                 ))}
@@ -1648,8 +1640,8 @@ function UploadDialog({
           </div>
           <label className="file-drop">
             <Upload size={24} />
-            <strong>Annotation files / ZIP</strong>
-            <span>CVAT images XML · COCO JSON · YOLO / KITTI TXT</span>
+            <strong>Tệp nhãn hoặc ZIP chứa nhãn</strong>
+            <span>Hỗ trợ CVAT XML · COCO JSON · YOLO / KITTI TXT</span>
             <input
               type="file"
               name="annotations"
@@ -1660,8 +1652,8 @@ function UploadDialog({
           </label>
           <label className="file-drop">
             <Database size={24} />
-            <strong>Media / sensor data / ZIP</strong>
-            <span>JPG · JPEG · PNG · BIN · PCD (sensor files retained)</span>
+            <strong>Ảnh / dữ liệu cảm biến / tệp ZIP</strong>
+            <span>JPG · JPEG · PNG · BIN · PCD (giữ lại tệp cảm biến)</span>
             <input
               type="file"
               name="media"
@@ -1670,8 +1662,7 @@ function UploadDialog({
             />
           </label>
           <p className="muted small">
-            YOLO requires matching images. KITTI point density and projection
-            metrics require calibration and remain unavailable in this MVP.
+            Nhãn YOLO cần có ảnh tương ứng. Hiện chưa tính mật độ điểm và phép chiếu KITTI do cần dữ liệu hiệu chỉnh cảm biến.
           </p>
           <button className="full" disabled={disabled}>
             {disabled ? (
@@ -1679,12 +1670,11 @@ function UploadDialog({
             ) : (
               <Upload size={16} />
             )}
-            Upload & Analyze
+            Thêm dữ liệu và phân tích
           </button>
           {disabled && (
             <p className="muted">
-              Uploading, validating, parsing, matching media and calculating
-              difficulty. Keep this window open.
+              Đang tải tệp, đọc nhãn, ghép ảnh và tính độ khó. Vui lòng giữ cửa sổ này mở.
             </p>
           )}
         </form>
@@ -1722,12 +1712,12 @@ function Detail({
         <div className="modal-heading">
           <div>
             <div className="eyebrow">
-              SAMPLE #{s.id} · {title(s.task_type)}
+              MẪU #{s.id} · {title(s.task_type)}
             </div>
             <h2 id="detail-title">{s.file_name}</h2>
           </div>
           <button
-            aria-label="Close sample"
+            aria-label="Đóng chi tiết mẫu"
             className="icon-button"
             onClick={onClose}
           >
@@ -1828,19 +1818,19 @@ function Detail({
                 <Empty
                   text={
                     s.media_url
-                      ? "Sensor media retained. Inspect cuboid metadata below; interactive point-cloud rendering is not implemented."
-                      : "Media unavailable"
+                      ? "Đã giữ tệp cảm biến. Xem thông tin khối hộp bên dưới; hiện chưa hỗ trợ xem đám mây điểm tương tác."
+                      : "Chưa có ảnh / dữ liệu gốc"
                   }
                 />
               )}
             </div>
             <div className="principle">
               <Eye size={15} />
-              Difficulty estimates effort. Human review determines issues.
+              Độ khó ước tính công sức kiểm tra. Bạn cần xem nhãn để xác nhận lỗi.
             </div>
             <section className="card">
               <CardTitle
-                title="Annotation properties"
+                title="Thông tin nhãn"
                 sub={`${s.annotation_count} normalized shapes`}
               />
               {s.annotations?.map((a) => (
@@ -1868,8 +1858,8 @@ function Detail({
           <div>
             <section className="card">
               <CardTitle
-                title="Difficulty breakdown"
-                sub="Deterministic scores · 0–100"
+                title="Cách tính điểm độ khó"
+                sub="Điểm theo quy tắc cố định · thang 0–100"
               />
               <div className="detail-score">
                 <strong>{fmt(s.overall_difficulty)}</strong>
@@ -1877,13 +1867,13 @@ function Detail({
               </div>
               <div className="score-pair">
                 <span>
-                  Annotation <strong>{fmt(s.annotation_difficulty)}</strong>
+                  Đặc điểm nhãn <strong>{fmt(s.annotation_difficulty)}</strong>
                 </span>
                 <span>
-                  Visual <strong>{fmt(s.visual_difficulty)}</strong>
+                  Đặc điểm ảnh <strong>{fmt(s.visual_difficulty)}</strong>
                 </span>
               </div>
-              <h4>Feature contributions to overall score</h4>
+              <h4>Mức đóng góp của từng đặc điểm vào điểm tổng</h4>
               {Object.entries(s.analysis?.feature_contributions || {})
                 .sort((a, b) => b[1] - a[1])
                 .map(([k, v]) => (
@@ -1893,15 +1883,15 @@ function Detail({
                     <div style={{ width: `${Math.min(v, 100)}%` }} />
                   </div>
                 ))}
-              <h4>Feature availability & measurements</h4>
+              <h4>Đặc điểm có dữ liệu và giá trị đo</h4>
               {[
                 ...Object.entries(s.analysis?.visual.features || {}).map(
-                  ([k, v]) => ["Visual · " + k, v] as const,
+                  ([k, v]) => ["Đặc điểm ảnh · " + title(k), v] as const,
                 ),
                 ...Object.entries(s.analysis?.per_type || {}).flatMap(
                   ([kind, v]) =>
                     Object.entries(v.features).map(
-                      ([k, f]) => [kind + " · " + k, f] as const,
+                      ([k, f]) => [title(kind) + " · " + title(k), f] as const,
                     ),
                 ),
               ].map(([k, f]) => (
@@ -1911,34 +1901,34 @@ function Detail({
                     <strong>
                       {f.available
                         ? `${((f.value || 0) * 100).toFixed(1)}%`
-                        : "Unavailable"}
+                        : "Chưa có dữ liệu"}
                     </strong>
                   </summary>
                   <p>
                     {f.reason_if_unavailable ||
-                      "Normalized difficulty heuristic"}
+                      "Giá trị độ khó đã chuẩn hóa"}
                   </p>
                   {f.raw != null && <pre>{JSON.stringify(f.raw, null, 2)}</pre>}
                 </details>
               ))}
               {s.rare_classes.length > 0 && (
-                <p>Rare classes: {s.rare_classes.join(", ")}</p>
+                <p>Loại vật thể hiếm: {s.rare_classes.join(", ")}</p>
               )}
             </section>
             {s.assignment_id && (
               <section className="card">
                 <CardTitle
-                  title="Human review"
+                  title="Ghi nhận kiểm tra"
                   sub={`${s.reviewer} · ${title(s.status || "PENDING")} · ${title(s.sampling_reason || "")}`}
                 />
                 <label>
-                  Review note
+                  Ghi chú kiểm tra
                   <textarea
                     rows={4}
                     maxLength={10000}
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    placeholder="Record your observation…"
+                    placeholder="Mô tả điều bạn quan sát được…"
                   />
                 </label>
                 <div className="review-buttons">
@@ -1947,7 +1937,7 @@ function Detail({
                     onClick={() => onReview("REVIEWED", note)}
                   >
                     <Check size={16} />
-                    No Issue
+                    Chưa thấy lỗi
                   </button>
                   <button
                     className="issue"
@@ -1955,21 +1945,21 @@ function Detail({
                     onClick={() => onReview("ISSUE_FOUND", note)}
                   >
                     <AlertTriangle size={16} />
-                    Issue Found
+                    Phát hiện lỗi
                   </button>
                   <button
                     className="secondary"
                     disabled={disabled}
                     onClick={() => onReview("SKIPPED", note)}
                   >
-                    Skip
+                    Bỏ qua lúc này
                   </button>
                   <button
                     className="secondary"
                     disabled={disabled}
                     onClick={() => onReview(s.status || "PENDING", note)}
                   >
-                    Save note
+                    Lưu ghi chú
                   </button>
                 </div>
                 <button
@@ -1977,7 +1967,7 @@ function Detail({
                   disabled={disabled}
                   onClick={onNext}
                 >
-                  Next Priority Sample
+                  Mở mẫu ưu tiên tiếp theo
                   <ArrowRight size={16} />
                 </button>
               </section>

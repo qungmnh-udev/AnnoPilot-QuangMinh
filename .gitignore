@@ -34,3 +34,4 @@ training/dataset/
 .runtime/wbf-api-smoke-*/
 .runtime/pytest-cvat-*/
 .runtime/build-cvat-*/
+.runtime/build-ui-*/

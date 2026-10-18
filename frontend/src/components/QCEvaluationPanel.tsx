@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, json } from '../api';
+import { displayLabel } from '../uiText';
 
 type Metrics = { tp: number; fp: number; fn: number; precision: number | null; recall: number | null; f1: number | null };
 type Run = { id: number; benchmark_id: number; strategy: string; metrics: {
@@ -49,7 +50,9 @@ export function QCEvaluationPanel({ datasetId }: { datasetId: number }) {
   }
   async function importGolden(file: File) {
     await perform(async () => {
-      const payload = JSON.parse(await file.text());
+      let payload: unknown;
+      try { payload = JSON.parse(await file.text()); }
+      catch { throw new Error('Không đọc được tệp JSON. Hãy kiểm tra định dạng theo mẫu Bộ nhãn chuẩn bên dưới.'); }
       await api(`${prefix}/benchmarks`, json('POST', payload));
     });
   }
@@ -67,40 +70,49 @@ export function QCEvaluationPanel({ datasetId }: { datasetId: number }) {
     const link = document.createElement('a'); link.href = url; link.download = `qc-evaluation-${datasetId}.json`; link.click(); URL.revokeObjectURL(url);
   }
   return <details className="card qc-evaluation-panel">
-    <summary><strong>Đánh giá Baseline → Pilot & vòng nghiệm thu</strong></summary>
-    <p className="muted">So sánh một detector với kiểm tra chéo nhiều detector trên cùng nhãn đầu vào và tập kiểm chứng độc lập. Hãy đánh giá trước khi sửa nhãn; ảnh không có cảnh báo cũng cần được kiểm chứng.</p>
+    <summary><strong>Đánh giá chất lượng và nghiệm thu</strong></summary>
+    <p className="muted">So sánh cách kiểm tra bằng một mô hình (Baseline) với nhiều mô hình (Pilot) trên cùng bộ nhãn chuẩn đã được người kiểm tra xác nhận. Mục này dùng để đo chất lượng, không tự tạo nhãn hoặc huấn luyện mô hình.</p>
+    <ol className="plain-steps"><li>Chuẩn bị bộ nhãn chuẩn độc lập, đã được kiểm tra thủ công, rồi nhập tệp JSON bên dưới.</li><li>Chạy nhận diện trước để có dự đoán của ít nhất hai mô hình. Chọn một mô hình đối chiếu và các mô hình kiểm tra chéo, rồi bấm So sánh và lưu kết quả.</li><li>Sau khi người kiểm tra xem xét chất lượng, ghi nhận nộp, yêu cầu sửa hoặc chấp nhận ở phần Nghiệm thu.</li></ol>
+    <details className="advanced-options">
+      <summary>Bộ nhãn chuẩn là gì? Chuẩn bị tệp nhập như thế nào?</summary>
+      <p>Bộ nhãn chuẩn (Golden) là một nhóm ảnh được người kiểm tra rà soát đầy đủ, kể cả các vùng AI không cảnh báo. Giữ riêng nhóm này để đo chất lượng, không dùng để huấn luyện. Tệp nhập dùng định dạng Golden của AnnoPilot, không phải tệp xuất CVAT hoặc COCO nguyên bản.</p>
+      <p>Thay tên ảnh, tên loại vật thể và tọa độ bằng dữ liệu đã xác nhận của bạn theo mẫu dưới đây. Tên ảnh phải khớp bộ dữ liệu đang chọn; tọa độ tính bằng điểm ảnh. Ảnh đã xác nhận không có vật thể dùng danh sách annotations rỗng.</p>
+      <pre className="golden-format-example">{JSON.stringify({ verified_by: 'Tên người kiểm tra', notes: 'Ghi chú cách kiểm chứng', includes_unwarned_regions: true, samples: [{ file_name: 'ten-anh-trong-bo-du-lieu.jpg', annotations: [{ label: 'car', geometry: { x1: 10, y1: 20, x2: 150, y2: 200 } }] }] }, null, 2)}</pre>
+      <p className="muted">Chỉ đặt includes_unwarned_regions thành true sau khi đã rà soát toàn ảnh. Nhãn chuẩn cần được chuẩn bị trước khi sửa nhãn đầu vào nếu muốn đo khả năng tìm lỗi.</p>
+    </details>
     {error && <p role="alert" className="text-warning">{error}</p>}
     <fieldset disabled={busy} style={{ border: 0, padding: 0 }}>
       <div className="qc-evaluation-controls">
-        <label>Golden Benchmark JSON<input type="file" accept=".json,application/json" onChange={e => { const file = e.target.files?.[0]; if (file) void importGolden(file); e.target.value = ''; }} /></label>
-        <label>Tập kiểm chứng<select value={benchmarkId} onChange={e => setBenchmarkId(e.target.value)}><option value="">Chưa có tập kiểm chứng</option>{data.benchmarks.map(b => <option key={b.id} value={b.id}>#{b.id} · {b.frame_count} frame · {b.verified_by}</option>)}</select></label>
-        <label>Detector baseline<select value={baseline} onChange={e => { setBaseline(e.target.value); setPilot(current => [...new Set([...current, e.target.value])]); }}><option value="">Chọn detector</option>{models.map(m => <option key={m}>{m}</option>)}</select></label>
+        <label>Nhập bộ nhãn chuẩn (Golden, tệp JSON)<input type="file" accept=".json,application/json" onChange={e => { const file = e.target.files?.[0]; if (file) void importGolden(file); e.target.value = ''; }} /></label>
+        <label>Tập kiểm chứng<select value={benchmarkId} onChange={e => setBenchmarkId(e.target.value)}><option value="">Chưa có tập kiểm chứng</option>{data.benchmarks.map(b => <option key={b.id} value={b.id}>#{b.id} · {b.frame_count} ảnh · {b.verified_by}</option>)}</select></label>
+        <label>Mô hình đối chiếu ban đầu<select value={baseline} onChange={e => { setBaseline(e.target.value); setPilot(current => [...new Set([...current, e.target.value])]); }}><option value="">Chọn mô hình</option>{models.map(m => <option key={m}>{m}</option>)}</select></label>
       </div>
-      <p>Detector pilot:</p>
+      <p>Các mô hình dùng để kiểm tra chéo:</p>
       <div className="qc-evaluation-controls">{models.map(m => <label key={m}><input type="checkbox" checked={pilot.includes(m)} disabled={m === baseline} onChange={e => setPilot(current => e.target.checked ? [...current, m] : current.filter(x => x !== m))} /> {m}</label>)}</div>
       <div className="qc-evaluation-controls">
-        <label>Review baseline (phút, nếu đã đo)<input type="number" min="0.01" step="any" value={minutes.baseline} onChange={e => setMinutes({ ...minutes, baseline: e.target.value })} /></label>
-        <label>Review pilot (phút, nếu đã đo)<input type="number" min="0.01" step="any" value={minutes.multi_model} onChange={e => setMinutes({ ...minutes, multi_model: e.target.value })} /></label>
+        <label>Thời gian kiểm tra bằng một mô hình (phút, tùy chọn)<input type="number" min="0.01" step="any" value={minutes.baseline} onChange={e => setMinutes({ ...minutes, baseline: e.target.value })} /></label>
+        <label>Thời gian kiểm tra bằng nhiều mô hình (phút, tùy chọn)<input type="number" min="0.01" step="any" value={minutes.multi_model} onChange={e => setMinutes({ ...minutes, multi_model: e.target.value })} /></label>
         <button className="primary" disabled={!benchmarkId || !baseline || pilot.length < 2} onClick={compare}>So sánh và lưu kết quả</button>
         <button onClick={download}>Tải báo cáo JSON</button>
-        <button onClick={() => void perform(refresh)}>Cập nhật nguồn model</button>
+        <button onClick={() => void perform(refresh)}>Tải lại danh sách mô hình</button>
       </div>
-      <p className="muted">Tên nguồn khác nhau chưa chứng minh checkpoint độc lập. Recall và precision chỉ có khi có tập kiểm chứng; thời gian QC dưới đây không bao gồm inference.</p>
-      <div style={{ overflowX: 'auto' }}><table><thead><tr><th>Run / Benchmark</th><th>Cấu hình</th><th>Recall sót vật thể</th><th>Recall sai class</th><th>Precision tổng</th><th>TP / FP / FN</th><th>Lỗi thật/giờ review</th><th>Inference / QC (giây)</th></tr></thead><tbody>
-        {data.runs.map(r => <tr key={r.id}><td>#{r.id} / #{r.benchmark_id}</td><td>{r.strategy === 'baseline' ? 'Baseline' : 'Pilot'} · {r.metrics.frame_count} frame</td><td>{percent(r.metrics.MISSING_OBJECT.recall)}</td><td>{percent(r.metrics.WRONG_CLASS.recall)}</td><td>{percent(r.metrics.overall.precision)}</td><td>{r.metrics.overall.tp} / {r.metrics.overall.fp} / {r.metrics.overall.fn}</td><td>{r.metrics.true_errors_per_review_hour?.toFixed(1) ?? '—'}</td><td>{r.metrics.inference_seconds?.toFixed(3) ?? '—'} / {r.metrics.qc_seconds.toFixed(3)}</td></tr>)}
-        {!data.runs.length && <tr><td colSpan={8}>Chưa có kết quả đo. Dấu — nghĩa là chưa có mẫu hoặc chưa ghi thời gian review.</td></tr>}
+      <p className="muted">Cần bộ nhãn chuẩn và ít nhất hai nguồn dự đoán để so sánh. Tỷ lệ tìm được lỗi cho biết đã phát hiện bao nhiêu lỗi thật; tỷ lệ cảnh báo đúng cho biết bao nhiêu cảnh báo là chính xác. Tên nguồn khác nhau chưa bảo đảm đó là các mô hình độc lập.</p>
+      <p className="muted">TP / FP / FN lần lượt là số lỗi tìm đúng / cảnh báo sai / lỗi bị bỏ sót. Thời gian nhận diện và đối chiếu được tính riêng; thời gian kiểm tra thủ công là số phút bạn tự ghi nhận.</p>
+      <div style={{ overflowX: 'auto' }}><table><thead><tr><th>Lượt đo / Bộ chuẩn</th><th>Cấu hình</th><th>Tỷ lệ tìm được lỗi thiếu vật thể</th><th>Tỷ lệ tìm được lỗi sai loại</th><th>Tỷ lệ cảnh báo đúng</th><th>TP / FP / FN</th><th>Lỗi thật / giờ kiểm tra</th><th>Nhận diện / Đối chiếu (giây)</th></tr></thead><tbody>
+        {data.runs.map(r => <tr key={r.id}><td>#{r.id} / #{r.benchmark_id}</td><td>{r.strategy === 'baseline' ? "Một mô hình" : "Nhiều mô hình"} · {r.metrics.frame_count} ảnh</td><td>{percent(r.metrics.MISSING_OBJECT.recall)}</td><td>{percent(r.metrics.WRONG_CLASS.recall)}</td><td>{percent(r.metrics.overall.precision)}</td><td>{r.metrics.overall.tp} / {r.metrics.overall.fp} / {r.metrics.overall.fn}</td><td>{r.metrics.true_errors_per_review_hour?.toFixed(1) ?? '—'}</td><td>{r.metrics.inference_seconds?.toFixed(3) ?? '—'} / {r.metrics.qc_seconds.toFixed(3)}</td></tr>)}
+        {!data.runs.length && <tr><td colSpan={8}>Chưa có kết quả đo. Dấu — nghĩa là chưa có dữ liệu để tính hoặc chưa ghi thời gian kiểm tra.</td></tr>}
       </tbody></table></div>
-      <p><strong>Nghiệm thu:</strong> {acceptance?.status || 'Đang tải'} · {acceptance?.submission_count || 0} lần nộp · {acceptance?.return_count || 0} vòng bị trả lại</p>
+      <p><strong>Nghiệm thu:</strong> {acceptance ? displayLabel(acceptance.status) : 'Đang tải'} · {acceptance?.submission_count || 0} lần nộp · {acceptance?.return_count || 0} vòng bị trả lại</p>
       <div className="qc-evaluation-controls">
-        <label>Quy trình<select value={strategy} disabled={!!acceptance?.strategy} onChange={e => setStrategy(e.target.value)}><option value="baseline">Baseline</option><option value="multi_model">Pilot multi-model</option></select></label>
+        <label>Quy trình<select value={strategy} disabled={!!acceptance?.strategy} onChange={e => setStrategy(e.target.value)}><option value="baseline">Một mô hình</option><option value="multi_model">Nhiều mô hình</option></select></label>
         <label>Người ghi nhận<input value={actor} onChange={e => setActor(e.target.value)} /></label>
         <label>Lý do / ghi chú<input value={reason} onChange={e => setReason(e.target.value)} /></label>
         <button disabled={!actor.trim() || !['NOT_SUBMITTED', 'RETURNED'].includes(acceptance?.status || '')} onClick={() => record('SUBMITTED')}>Ghi nhận nộp nghiệm thu</button>
         <button disabled={!actor.trim() || !reason.trim() || acceptance?.status !== 'SUBMITTED'} onClick={() => record('RETURNED')}>Ghi nhận trả lại</button>
         <button disabled={!actor.trim() || acceptance?.status !== 'SUBMITTED'} onClick={() => record('ACCEPTED')}>Ghi nhận chấp nhận</button>
       </div>
-      <p className="muted">Đây là quyết định nghiệm thu do người dùng ghi nhận. So sánh số vòng trả lại trên các dataset baseline/pilot tương đương, cùng tiêu chí và quy mô.</p>
-      {acceptance?.events.map(e => <p key={e.id}>Lần nộp {e.cycle} · {e.status} · {e.actor} · {e.reason || 'Không có ghi chú'}</p>)}
+      <p className="muted">Đây là nhật ký quyết định của người dùng, không tự chấm đạt. Nhập tên người ghi nhận để nộp; khi yêu cầu sửa lại cần có lý do. Chỉ chấp nhận hoặc trả lại sau khi đã nộp.</p>
+      {acceptance?.events.map(e => <p key={e.id}>Lần nộp {e.cycle} · {displayLabel(e.status)} · {e.actor} · {e.reason || 'Không có ghi chú'}</p>)}
     </fieldset>
   </details>;
 }

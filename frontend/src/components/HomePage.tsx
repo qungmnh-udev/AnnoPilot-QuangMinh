@@ -11,37 +11,38 @@ import {
 } from "lucide-react";
 import type { Dataset } from "../types";
 import type { DatasetStatus } from "./DatasetRequiredRoute";
+import { displayLabel } from "../uiText";
 
 const modules = [
   [
     ShieldAlert,
-    "Model-Assisted QC (N2-04D)",
-    "Baseline một detector và pilot kiểm tra chéo nhiều model để tìm sót vật thể, sai class.",
+    "Kiểm tra nhãn bằng AI",
+    "Đối chiếu nhãn với dự đoán để tìm vị trí có thể thiếu vật thể hoặc gán sai loại.",
   ],
   [
     ListFilter,
-    "Prioritized Review Queue",
-    "Tự động tính QC Score và đẩy các mẫu có nguy cơ lỗi cao nhất lên đầu hàng đợi.",
+    "Danh sách ưu tiên kiểm tra",
+    "Ảnh có nhiều nghi vấn được xếp trước để bạn biết nên bắt đầu từ đâu.",
   ],
   [
     Layers,
-    "Dual-Overlay Visual Diff",
-    "Trực quan hóa đa lớp: Nhãn người gán (GT), Model dự đoán, và Vùng bất đồng nghi vấn.",
+    "So sánh ngay trên ảnh",
+    "Bật hoặc tắt nhãn hiện có, dự đoán AI và vùng nghi vấn để dễ đối chiếu.",
   ],
   [
     Zap,
-    "1-Click Closed-Loop Action",
-    "Sửa nhãn và thêm bounding box trực tiếp vào cơ sở dữ liệu chỉ với 1 lần bấm chuột.",
+    "Xử lý từng nghi vấn",
+    "Chấp nhận gợi ý trong AnnoPilot hoặc mở CVAT để sửa nhãn gốc, rồi đồng bộ lại.",
   ],
   [
     TrendingDown,
-    "Baseline → Pilot",
-    "Đo recall từng loại lỗi, precision, lỗi thật trên mỗi giờ review và số vòng bị trả lại.",
+    "Đo chất lượng trước và sau",
+    "Dùng bộ nhãn chuẩn để so sánh một mô hình với nhiều mô hình, rồi ghi nhận nghiệm thu.",
   ],
   [
     Eye,
-    "Human-in-the-Loop",
-    "Mô hình không thay thế con người; reviewer luôn là người ra quyết định thẩm định cuối cùng.",
+    "Bạn là người quyết định",
+    "AI đưa ra gợi ý. Bạn kiểm tra ảnh và xác nhận kết quả cuối cùng.",
   ],
 ] as const;
 
@@ -62,40 +63,37 @@ export function HomePage({
     <section className="home-page" aria-labelledby="home-title">
       <div className="home-hero">
         <div className="eyebrow">
-          ANNOPILOT · MODEL-ASSISTED QUALITY CONTROL (N2-04D)
+          ANNOPILOT · TRỢ LÝ KIỂM TRA NHÃN
         </div>
         <h1 id="home-title">
-          Bắt vật thể bị sót &amp;
+          Tìm vật thể bị sót và
           <br />
-          <span>sai class trên BDD100K.</span>
+          <span>nhãn sai loại trong ảnh.</span>
         </h1>
         <p>
-          Hệ thống Model-Assisted QC sử dụng Pretrained Detector làm Second Reviewer,
-          tự động phát hiện Missing Objects &amp; Wrong Classes, xếp hạng hàng đợi ưu tiên
-          và hỗ trợ sửa lỗi 1 chạm.
+          Thêm ảnh, để AI gợi ý những chỗ cần xem lại, rồi kiểm tra và sửa nhãn. Nếu ảnh chưa có nhãn, bạn có thể tạo nhãn gợi ý bằng nhiều mô hình để bắt đầu nhanh hơn.
         </p>
         <div className="home-actions">
           {dataset ? (
             <>
               <button className="large" onClick={onModelQC || onDashboard}>
-                <ShieldAlert size={20} /> Open Model QC <ArrowRight size={20} />
+                <ShieldAlert size={20} /> Bắt đầu kiểm tra nhãn <ArrowRight size={20} />
               </button>
               <button className="secondary" onClick={onDashboard}>
-                <Database size={18} /> View Dataset
+                <Database size={18} /> Xem bộ dữ liệu
               </button>
               <button className="secondary" onClick={onUpload}>
-                <Upload size={18} /> Upload Dataset
+                <Upload size={18} /> Thêm bộ dữ liệu
               </button>
             </>
           ) : (
             <button className="large" onClick={onUpload}>
-              <Upload size={20} /> Upload BDD100K Dataset <ArrowRight size={20} />
+              <Upload size={20} /> Thêm bộ dữ liệu đầu tiên <ArrowRight size={20} />
             </button>
           )}
         </div>
         <p className="home-principle">
-          Human-in-the-loop: Bất đồng giữa Pretrained Model và Annotator là bằng chứng gợi ý.
-          Reviewer luôn giữ quyền quyết định cuối cùng.
+          Cảnh báo của AI là gợi ý để bạn kiểm tra, chưa phải kết luận nhãn sai.
         </p>
       </div>
 
@@ -106,55 +104,55 @@ export function HomePage({
         >
           <div className="card-title">
             <div>
-              <div className="eyebrow">CURRENT DATASET</div>
+              <div className="eyebrow">BỘ DỮ LIỆU ĐANG CHỌN</div>
               <h2 id="current-dataset-title">{dataset.name}</h2>
             </div>
             <Database size={26} />
           </div>
           <dl>
             <div>
-              <dt>Task Type</dt>
-              <dd>{dataset.task_type.replaceAll("_", " ")}</dd>
+              <dt>Dạng nhãn</dt>
+              <dd>{displayLabel(dataset.task_type)}</dd>
             </div>
             <div>
-              <dt>Samples</dt>
+              <dt>Số mẫu</dt>
               <dd>{dataset.sample_count.toLocaleString()}</dd>
             </div>
             <div>
-              <dt>Annotations</dt>
+              <dt>Nhãn</dt>
               <dd>{dataset.annotation_count.toLocaleString()}</dd>
             </div>
             <div>
-              <dt>Analysis Status</dt>
+              <dt>Trạng thái phân tích</dt>
               <dd>
                 {status === "loading"
-                  ? "Refreshing workspace…"
+                  ? "Đang cập nhật dữ liệu…"
                   : status === "error"
-                    ? "Connection unavailable"
-                    : "Analysis complete"}
+                    ? "Chưa kết nối được máy chủ"
+                    : "Đã phân tích"}
               </dd>
             </div>
           </dl>
           <button className="secondary" onClick={onDashboard}>
-            Open Dashboard <ArrowRight size={18} />
+            Xem bộ dữ liệu <ArrowRight size={18} />
           </button>
         </section>
       )}
 
       <section className="home-section" aria-labelledby="workflow-title">
         <div className="home-section-heading">
-          <div className="eyebrow">QUY TRÌNH MODEL-ASSISTED QC</div>
-          <h2 id="workflow-title">Quy trình Khép kín (Closed-Loop Workflow)</h2>
-          <p>Từ dữ liệu gán nhãn thô đến kết quả đối soát và khắc phục lỗi trực tiếp.</p>
+          <div className="eyebrow">CÁCH SỬ DỤNG</div>
+          <h2 id="workflow-title">Bắt đầu từ ảnh, hoàn thiện bằng kiểm tra</h2>
+          <p>Đi theo các bước dưới đây. Bạn có thể dùng mô hình có sẵn, chưa cần huấn luyện mô hình mới.</p>
         </div>
         <ol className="home-workflow">
           {[
-            "Nạp BDD100K",
-            "YOLO26 Inference",
-            "IoU Audit Engine",
-            "Hàng đợi Ưu tiên",
-            "Visual Diff 2 lớp",
-            "1-Click Sửa lỗi",
+            "Thêm ảnh và nhãn",
+            "Cho AI nhận diện",
+            "Đối chiếu với nhãn",
+            "Xem ảnh có nghi vấn",
+            "So sánh trên ảnh",
+            "Sửa và đồng bộ nhãn",
           ].map((step, index) => (
             <li key={step}>
               <span>{String(index + 1).padStart(2, "0")}</span>
@@ -168,7 +166,7 @@ export function HomePage({
       <section className="home-section" aria-labelledby="modules-title">
         <div className="home-section-heading">
           <div className="eyebrow">CÁC TÍNH NĂNG CỐT LÕI</div>
-          <h2 id="modules-title">Bộ công cụ Giữ chất lượng Dữ liệu</h2>
+          <h2 id="modules-title">Mỗi chức năng giúp bạn làm gì?</h2>
         </div>
         <div className="home-modules">
           {modules.map(([Icon, name, description]) => (
@@ -182,18 +180,16 @@ export function HomePage({
       </section>
 
       <section className="card home-support" aria-labelledby="support-title">
-        <h2 id="support-title">Tập trung cho Xe Tự hành &amp; BDD100K Taxonomy</h2>
+        <h2 id="support-title">Hỗ trợ các loại vật thể giao thông</h2>
         <div className="home-task-list">
-          <span>Car / Van / SUV</span>
-          <span>Pedestrian (Người đi bộ)</span>
-          <span>Rider (Người lái xe 2 bánh)</span>
-          <span>Truck vs Bus Prior</span>
-          <span>Traffic Light &amp; Sign</span>
+          <span>Ô tô / xe van / SUV</span>
+          <span>Người đi bộ</span>
+          <span>Người đi xe hai bánh</span>
+          <span>Xe tải và xe buýt</span>
+          <span>Đèn và biển báo giao thông</span>
         </div>
         <p>
-          Hệ thống áp dụng ma trận nhầm lẫn tiền nghiệm (Driving Confusion Priors)
-          đặc thù cho lĩnh vực lái xe tự động để phân biệt các lỗi nghiêm trọng
-          như sót người đi bộ từ xa, hoặc gán nhầm xe tải thành xe bus.
+          Ứng dụng ưu tiên các tình huống dễ nhầm trong ảnh giao thông, ví dụ bỏ sót người đi bộ hoặc nhầm xe tải với xe buýt. Tên loại vật thể trong tệp dữ liệu vẫn được giữ nguyên để trao đổi đúng với CVAT.
         </p>
       </section>
     </section>

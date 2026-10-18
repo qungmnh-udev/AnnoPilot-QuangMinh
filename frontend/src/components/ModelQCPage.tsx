@@ -50,6 +50,7 @@ import {
   Zap,
 } from "lucide-react";
 import { api, json } from "../api";
+import { displayLabel, displayMessage } from "../uiText";
 import { QCEvaluationPanel } from './QCEvaluationPanel';
 import { TrainingPanel } from './TrainingPanel';
 import { WBFExperimentPanel } from './WBFExperimentPanel';
@@ -161,7 +162,7 @@ function RoiSnapshot({
     <div
       className="qc-roi-snapshot"
       onClick={onClick}
-      title="Bấm để cuộn lên và phóng to (zoom) vào vật thể này trên ảnh chính"
+      title="Bấm để xem cận cảnh vật thể này trên ảnh chính"
     >
       {imageUrl && location && !hasError ? (
         <>
@@ -179,7 +180,7 @@ function RoiSnapshot({
           #{index}
         </span>
         <span className="roi-locate-pill">
-          <Crosshair size={11} /> Định vị & Zoom
+          <Crosshair size={11} /> Xem cận cảnh
         </span>
       </div>
     </div>
@@ -208,8 +209,10 @@ export function ModelQCPage({
   const [report, setReport] = useState<QCAuditReport | null>(null);
   const [queue, setQueue] = useState<Sample[]>([]);
   const [selectedSample, setSelectedSample] = useState<Sample | null>(null);
+  const sampleRequestId = useRef(0);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string>("");
+  const [error, setErrorMessage] = useState<string>("");
+  const setError = (message: string) => setErrorMessage(displayMessage(message));
 
   // Filters
   const [severityFilter, setSeverityFilter] = useState<string>("ALL");
@@ -279,7 +282,7 @@ export function ModelQCPage({
   const [newModelFile, setNewModelFile] = useState<File | null>(null);
   const [newModelName, setNewModelName] = useState<string>("");
   const [runningTriad, setRunningTriad] = useState<boolean>(false);
-  const [triadLimit, setTriadLimit] = useState<number | null>(null);
+  const [triadLimit, setTriadLimit] = useState<number | null>(10);
   const triadModels = useMemo(() => [selectedYoloModel, 'fasterrcnn_mobilenet_v3', 'rtdetr_l'], [selectedYoloModel]);
 
   // More tools menu dropdown state
@@ -331,8 +334,8 @@ export function ModelQCPage({
     const timer = setInterval(async () => {
       try {
         const [liveReport, liveQueue] = await Promise.all([
-          api<QCAuditReport>(`/datasets/${dataset.id}/qc/report`),
-          api<Sample[]>(`/datasets/${dataset.id}/qc/queue?include_clean=true`),
+          api<QCAuditReport>(`/datasets/${dataset.id}/qc/report?compact=true`),
+          api<Sample[]>(`/datasets/${dataset.id}/qc/queue?include_clean=true&compact=true`),
         ]);
         if (active) { setReport(liveReport); setQueue(liveQueue); }
       } catch { /* The final inference response reports errors; polling retries. */ }
@@ -483,13 +486,14 @@ export function ModelQCPage({
 
   // Load QC Data
   const loadQCData = async () => {
+    const selectionRequest = ++sampleRequestId.current;
     try {
       setLoading(true);
       setError("");
       // Fetch report & queue in parallel
       const [reportData, queueData] = await Promise.all([
-        api<QCAuditReport>(`/datasets/${dataset.id}/qc/report`),
-        api<Sample[]>(`/datasets/${dataset.id}/qc/queue?include_clean=true`),
+        api<QCAuditReport>(`/datasets/${dataset.id}/qc/report?compact=true`),
+        api<Sample[]>(`/datasets/${dataset.id}/qc/queue?include_clean=true&compact=true`),
       ]);
       setReport(reportData);
       setQueue(queueData);
@@ -500,19 +504,20 @@ export function ModelQCPage({
         if (matchingCurrent) {
           try {
             const detailed = await api<Sample>(`/samples/${currentId}`);
-            setSelectedSample(detailed);
-          } catch {
-            setSelectedSample(matchingCurrent);
+            if (selectionRequest === sampleRequestId.current) setSelectedSample(detailed);
+          } catch (error) {
+            if (selectionRequest === sampleRequestId.current) setError(error instanceof Error ? error.message : 'Không tải được chi tiết ảnh.');
           }
         } else {
           const firstFlagged = queueData.find((s) => (s.qc_issue_count || 0) > 0) || queueData[0];
-          setSelectedSample(firstFlagged);
+          const detailed = await api<Sample>(`/samples/${firstFlagged.id}`);
+          if (selectionRequest === sampleRequestId.current) setSelectedSample(detailed);
         }
       } else {
-        setSelectedSample(null);
+        if (selectionRequest === sampleRequestId.current) setSelectedSample(null);
       }
     } catch (err: any) {
-      setError(err?.message || "Failed to load QC audit data");
+      setError(err?.message || "Không tải được kết quả kiểm tra nhãn");
     } finally {
       setLoading(false);
     }
@@ -524,32 +529,40 @@ export function ModelQCPage({
 
   // Refresh single sample detail
   const refreshCurrentSample = async (sampleId: number) => {
+    const selectionRequest = ++sampleRequestId.current;
     try {
       const detailed = await api<Sample>(`/samples/${sampleId}`);
-      setSelectedSample(detailed);
+      if (selectionRequest === sampleRequestId.current) setSelectedSample(detailed);
       // Update in queue list
-      setQueue((prev) => prev.map((s) => (s.id === sampleId ? { ...s, ...detailed } : s)));
+      const { annotations, predictions, qc_issues: issues = [], ...summary } = detailed;
+      const counts = {
+        missing: issues.filter(i => i.issue_type === 'MISSING_OBJECT').length,
+        wrong: issues.filter(i => i.issue_type === 'WRONG_CLASS').length,
+        resolved: issues.filter(i => i.status !== 'PENDING').length,
+        total: issues.length,
+      };
+      setQueue((prev) => prev.map((s) => (s.id === sampleId ? { ...s, ...summary, qc_issue_counts: counts } : s)));
     } catch (e) {
-      console.error(e);
+      if (selectionRequest === sampleRequestId.current) setError(e instanceof Error ? e.message : 'Không tải được chi tiết ảnh.');
     }
   };
 
   // Run Pretrained Model Detection
   const handleRunDetector = () => {
-    void act("Running Pretrained Detector & Audit…", async () => {
+    void act("Đang chạy mô hình và đối chiếu nhãn…", async () => {
       try {
         await api(`/datasets/${dataset.id}/qc/detect?model_name=${selectedYoloModel}`, { method: "POST" });
         await loadQCData();
         await onRefreshDataset();
       } catch (err: any) {
-        setError(err?.message || "Detector execution failed");
+        setError(err?.message || "Không chạy được mô hình nhận diện");
       }
     });
   };
 
   // Start Incremental Streaming Queue (P0)
   const handleStartQueue = async (forceRepredict = false) => {
-    void act("Khởi động hàng đợi xử lý streaming từng frame…", async () => {
+    void act("Đang bắt đầu kiểm tra từng ảnh…", async () => {
       try {
         const res = await api<FrameQueueStatusResponse>(
           `/datasets/${dataset.id}/qc/queue/start`,
@@ -582,13 +595,13 @@ export function ModelQCPage({
   // On-demand single frame audit
   const handleAuditSingleFrame = async (sampleId: number) => {
     setAuditingFrameId(sampleId);
-    void act("Đang kiểm tra chi tiết frame…", async () => {
+    void act("Đang nhận diện và đối chiếu lại ảnh…", async () => {
       try {
         await api(`/datasets/${dataset.id}/qc/frame/${sampleId}/audit?force_repredict=true&model_name=${selectedYoloModel}`, { method: "POST" });
         await refreshCurrentSample(sampleId);
         await loadQCData();
       } catch (err: any) {
-        setError(err?.message || "Kiểm tra frame thất bại");
+        setError(err?.message || "Không kiểm tra lại được ảnh");
       } finally {
         setAuditingFrameId(null);
       }
@@ -598,7 +611,7 @@ export function ModelQCPage({
   // Verify and sync single frame against CVAT
   const handleVerifyFrameCVAT = async (sampleId: number) => {
     setVerifyingFrameId(sampleId);
-    void act("Đang đối soát frame với CVAT…", async () => {
+    void act("Đang đối chiếu ảnh với nhãn trên CVAT…", async () => {
       try {
         const res = await api<CVATVerifyFrameResponse>(`/datasets/${dataset.id}/qc/frame/${sampleId}/cvat-verify`, { method: "POST" });
         await refreshCurrentSample(sampleId);
@@ -609,7 +622,7 @@ export function ModelQCPage({
           alert(`ℹ️ ${res.message}`);
         }
       } catch (err: any) {
-        setError(err?.message || "Đối soát frame với CVAT thất bại");
+        setError(err?.message || "Không đối chiếu được nhãn trên CVAT");
       } finally {
         setVerifyingFrameId(null);
       }
@@ -627,7 +640,7 @@ export function ModelQCPage({
     }
 
     setShowCVATSyncModal(false);
-    void act("Đang đồng bộ nhãn từ CVAT (Source of Truth)…", async () => {
+    void act("Đang lấy nhãn mới nhất từ CVAT…", async () => {
       try {
         const response = await fetch(`/api/datasets/${dataset.id}/qc/cvat-sync`, {
           method: "POST",
@@ -650,7 +663,7 @@ export function ModelQCPage({
   // Run Synthetic Benchmark
   const handleRunBenchmark = () => {
     setShowBenchmarkModal(false);
-    void act("Simulating QC Benchmark Injections…", async () => {
+    void act("Đang tạo lỗi mô phỏng để thử nghiệm…", async () => {
       try {
         await api(
           `/datasets/${dataset.id}/qc/synthetic-benchmark?missing_ratio=${benchmarkMissingRatio}&wrong_class_ratio=${benchmarkWrongRatio}&source_model=synthetic_oracle_v1`,
@@ -659,7 +672,7 @@ export function ModelQCPage({
         await loadQCData();
         await onRefreshDataset();
       } catch (err: any) {
-        setError(err?.message || "Synthetic benchmark failed");
+        setError(err?.message || "Không tạo được thử nghiệm mô phỏng");
       }
     });
   };
@@ -676,7 +689,7 @@ export function ModelQCPage({
     formData.append("source_model", uploadSourceModel);
 
     setShowUploadModal(false);
-    void act("Uploading predictions & auditing…", async () => {
+    void act("Đang nhập dự đoán và đối chiếu nhãn…", async () => {
       try {
         const response = await fetch(`/api/datasets/${dataset.id}/qc/predictions/upload`, {
           method: "POST",
@@ -684,12 +697,12 @@ export function ModelQCPage({
         });
         if (!response.ok) {
           const body = await response.json();
-          throw new Error(body.detail || "Upload failed");
+          throw new Error(body.detail || "Không tải tệp lên được");
         }
         await loadQCData();
         await onRefreshDataset();
       } catch (err: any) {
-        setError(err?.message || "Predictions upload failed");
+        setError(err?.message || "Không nhập được dự đoán");
       }
     });
   };
@@ -763,11 +776,11 @@ export function ModelQCPage({
 
   // Run WBF Ensemble
   const handleRunEnsemble = async () => {
-    if (selectedEnsembleModels.length === 0) {
-      setError("Vui lòng chọn ít nhất 1 model để thực hiện Ensemble.");
+    if (selectedEnsembleModels.length < 2) {
+      setError("Chọn ít nhất 2 mô hình có dự đoán, hoặc dùng Nhận diện và tạo nhãn gợi ý để chạy 3 mô hình có sẵn.");
       return;
     }
-    void act("Đang kết hợp dự đoán (WBF Ensemble & Tri-Tier Classification)...", async () => {
+    void act("Đang hợp nhất khung bao và phân mức đồng thuận…", async () => {
       try {
         const res = await api<EnsembleResponse>(
           `/datasets/${dataset.id}/ensemble/run`,
@@ -785,7 +798,7 @@ export function ModelQCPage({
         await onRefreshDataset();
         await loadQCData();
       } catch (err: any) {
-        setError(err?.message || "Thực thi WBF Ensemble thất bại");
+        setError(err?.message || "Không hợp nhất được dự đoán");
       }
     });
   };
@@ -794,11 +807,11 @@ export function ModelQCPage({
   const handleUploadAdditionalModel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newModelFile) {
-      setError("Vui lòng chọn file JSON dự đoán của model");
+      setError("Chọn tệp JSON chứa dự đoán của mô hình.");
       return;
     }
     const modelName = newModelName.trim() || `model_${Date.now()}`;
-    void act(`Đang tải lên model '${modelName}' và kết hợp WBF...`, async () => {
+    void act(`Đang nhập dự đoán của '${modelName}' và hợp nhất khung bao…`, async () => {
       try {
         const formData = new FormData();
         formData.append("file", newModelFile);
@@ -821,7 +834,7 @@ export function ModelQCPage({
         await onRefreshDataset();
         await loadQCData();
       } catch (err: any) {
-        setError(err?.message || "Upload model và kết hợp thất bại");
+        setError(err?.message || "Không nhập và hợp nhất được dự đoán");
       }
     });
   };
@@ -830,7 +843,7 @@ export function ModelQCPage({
   const handleRunTriadEnsemble = async (customLimit?: number | null) => {
     setRunningTriad(true);
     const limitToUse = customLimit !== undefined ? customLimit : triadLimit;
-    void act("Đang chạy inference Bộ 3 Mô hình Phương án B (YOLO26 + Faster R-CNN + RT-DETR)...", async () => {
+    void act("Đang nhận diện bằng YOLO26, Faster R-CNN và RT-DETR rồi hợp nhất kết quả…", async () => {
       try {
         const res = await api<TriadRunResponse>(`/datasets/${dataset.id}/ensemble/run-triad`,
           json("POST", {
@@ -849,23 +862,24 @@ export function ModelQCPage({
         if (res.ensemble_result) {
           setEnsembleResult(res.ensemble_result);
         }
-        if (!res.success) setError(`Inference chưa đầy đủ: ${res.skipped_frames?.length || 0} frame thiếu media.`);
+        if (!res.success) setError(`Chưa nhận diện hết: ${res.skipped_frames?.length || 0} ảnh thiếu dữ liệu gốc.`);
         const modelsData = await api<DatasetModelsResponse>(`/datasets/${dataset.id}/ensemble/models`);
         setAvailableModelsData(modelsData);
         setSelectedEnsembleModels((modelsData.active_models || modelsData.models).filter((m) => !m.startsWith("ensemble_") && !m.startsWith('synthetic')));
         await onRefreshDataset();
         await loadQCData();
         alert(
-          `🎉 Hoàn tất Phương án B!\n` +
-          `• Frames đã xử lý: ${res.frames_processed}\n` +
-          `• Tổng số dự đoán: ${res.total_predictions.toLocaleString()} boxes\n` +
-          `  - ${selectedYoloModel.toUpperCase()} (1-Stage): ${res.model_counts?.[selectedYoloModel] || 0}\n` +
-          `  - Faster R-CNN (2-Stage): ${res.model_counts?.fasterrcnn_mobilenet_v3 || 0}\n` +
-          `  - RT-DETR-l (Transformer): ${res.model_counts?.rtdetr_l || 0}\n` +
-          `• Pre-labels đồng thuận WBF: ${res.ensemble_result?.total_fused_predictions || 0} boxes!`
+          (res.success ? `Đã hoàn tất nhận diện và hợp nhất.\n` : `Đã kết thúc lượt chạy; một số ảnh chưa có kết quả đầy đủ.\n`) +
+          `• Số ảnh đã xử lý: ${res.frames_processed}\n` +
+          `• Tổng số khung bao dự đoán: ${res.total_predictions.toLocaleString()}\n` +
+          `  - ${selectedYoloModel.toUpperCase()}: ${res.model_counts?.[selectedYoloModel] || 0}\n` +
+          `  - Faster R-CNN: ${res.model_counts?.fasterrcnn_mobilenet_v3 || 0}\n` +
+          `  - RT-DETR-l: ${res.model_counts?.rtdetr_l || 0}\n` +
+          `• Nhãn gợi ý sau hợp nhất: ${res.ensemble_result?.total_fused_predictions || 0}\n` +
+          `Hãy kiểm tra kết quả trước khi dùng làm nhãn chính thức.`
         );
       } catch (err: any) {
-        setError(err?.message || "Chạy inference Phương án B thất bại");
+        setError(err?.message || "Không hoàn tất được nhận diện bằng ba mô hình");
       } finally {
         setRunningTriad(false);
       }
@@ -920,10 +934,10 @@ export function ModelQCPage({
         );
         // Reload current sample & dataset audit
         await refreshCurrentSample(selectedSample.id);
-        const reportData = await api<QCAuditReport>(`/datasets/${dataset.id}/qc/report`);
+        const reportData = await api<QCAuditReport>(`/datasets/${dataset.id}/qc/report?compact=true`);
         setReport(reportData);
       } catch (err: any) {
-        setError(err?.message || "Failed to resolve QC issue");
+        setError(err?.message || "Không cập nhật được nghi vấn");
         await refreshCurrentSample(selectedSample.id);
       }
     });
@@ -947,7 +961,7 @@ export function ModelQCPage({
             }),
           );
           await refreshCurrentSample(selectedSample.id);
-          const reportData = await api<QCAuditReport>(`/datasets/${dataset.id}/qc/report`);
+          const reportData = await api<QCAuditReport>(`/datasets/${dataset.id}/qc/report?compact=true`);
           setReport(reportData);
         } catch (err: any) {
           setError(err?.message || "Lỗi tự động áp dụng đồng thuận");
@@ -966,7 +980,9 @@ export function ModelQCPage({
       }
       // Issue Type Filter
       if (issueTypeFilter !== "ALL") {
-        const hasIssue = item.qc_issues?.some((i) => i.issue_type === issueTypeFilter);
+        const hasIssue = item.qc_issue_counts
+          ? (issueTypeFilter === 'MISSING_OBJECT' ? item.qc_issue_counts.missing : item.qc_issue_counts.wrong) > 0
+          : item.qc_issues?.some((i) => i.issue_type === issueTypeFilter);
         if (!hasIssue) return false;
       }
       // Search query
@@ -1015,26 +1031,25 @@ export function ModelQCPage({
       <div className="qc-header card">
         <div className="qc-title-group">
           <div className="qc-eyebrow">
-            <span className="badge badge-accent">ĐỀ TÀI N2-04D</span>
-            <span>QUALITY CONTROL CHECK · BDD100K TAXONOMY</span>
+            <span className="badge badge-accent">AI HỖ TRỢ</span>
+            <span>KIỂM TRA NHÃN VẬT THỂ · BDD100K</span>
           </div>
           <h1>
-            Model-Assisted QC: <span className="highlight">Bắt vật thể bị sót & sai class</span>
+            Kiểm tra nhãn bằng AI: <span className="highlight">Tìm vật thể bị sót và nhãn sai loại</span>
           </h1>
           <p className="muted">
-            So sánh nhãn người gán với dự đoán của Pretrained Detector. Tự động phát hiện các vật thể bị bỏ sót
-            (Missing Object) và gán sai nhãn (Wrong Class), đồng thời đẩy các ca đáng nghi nhất lên đầu danh sách review.
+            AI đối chiếu dự đoán với nhãn hiện có để gợi ý chỗ có thể thiếu vật thể hoặc gán sai loại. Mở từng ảnh để xem bằng chứng và quyết định có sửa nhãn hay không.
           </p>
         </div>
 
         <div className="qc-actions-bar">
           <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-            YOLO
+            Mô hình
             <select aria-label="Chọn biến thể YOLO26" value={selectedYoloModel}
               disabled={busy || isQueueRunning || runningTriad}
               onChange={e => selectYoloModel(e.target.value as YOLOVariant)}>
-              <option value="yolo26n">YOLO26n · nano</option>
-              <option value="yolo26s">YOLO26s · small</option>
+              <option value="yolo26n">YOLO26n · Nhanh, dễ bắt đầu</option>
+              <option value="yolo26s">YOLO26s · Chi tiết hơn</option>
             </select>
           </label>
           {/* Action 1: Chạy Streaming Queue (Primary) */}
@@ -1042,9 +1057,9 @@ export function ModelQCPage({
             className="primary btn-streaming-start"
             disabled={busy || isQueueRunning}
             onClick={() => handleStartQueue(false)}
-            title="Chạy kiểm tra lần lượt từng frame dạng streaming/incremental không block hệ thống"
+            title="Dùng mô hình đang chọn để nhận diện từng ảnh, đối chiếu với nhãn hiện có và xếp nghi vấn cần kiểm tra."
           >
-            <Radio size={16} /> {isQueueRunning ? "Đang xử lý Streaming..." : "Chạy Queue QC"}
+            <Radio size={16} /> {isQueueRunning ? "Đang kiểm tra từng ảnh…" : "Kiểm tra nhãn bằng AI"}
           </button>
 
           {/* Action 2: Multi-Model Ensemble & Pre-labeling (WBF) */}
@@ -1053,9 +1068,9 @@ export function ModelQCPage({
             style={{ borderColor: "#a855f7", color: "#c084fc", background: "rgba(168, 85, 247, 0.08)" }}
             disabled={busy}
             onClick={() => void handleOpenEnsembleModal()}
-            title="Kết hợp dự đoán đa mô hình (Multi-Model WBF) để tạo pre-label đồng thuận chất lượng cao"
+            title="Cho nhiều mô hình nhận diện ảnh rồi hợp nhất khung bao thành nhãn gợi ý. Bạn cần kiểm tra lại trước khi sử dụng."
           >
-            <Layers size={16} /> Multi-Model WBF
+            <Layers size={16} /> Tạo nhãn gợi ý (WBF)
           </button>
 
           {/* Action 3: Đồng bộ từ CVAT (Inbound) */}
@@ -1063,7 +1078,7 @@ export function ModelQCPage({
             className="secondary btn-cvat-sync-trigger"
             disabled={busy}
             onClick={() => setShowCVATSyncModal(true)}
-            title="Đồng bộ file nhãn mới nhất từ CVAT để đối soát và tự động gỡ cảnh báo"
+            title="Lấy nhãn bạn đã lưu trên CVAT về AnnoPilot rồi đối chiếu lại. Cần cấu hình kết nối CVAT trước."
           >
             <FileUp size={16} /> Đồng bộ từ CVAT
           </button>
@@ -1073,9 +1088,9 @@ export function ModelQCPage({
             className="secondary btn-cvat-push-trigger"
             disabled={busy}
             onClick={() => setShowCVATPushModal(true)}
-            title="Đẩy các nhãn đã được duyệt hoặc nhãn AI sang CVAT Server qua REST API"
+            title="Chọn nguồn nhãn và cách gửi vào công cụ gán nhãn CVAT để tiếp tục chỉnh sửa."
           >
-            <Send size={16} /> Đẩy nhãn sang CVAT
+            <Send size={16} /> Gửi nhãn sang CVAT
           </button>
 
           {/* Action 5: Dropdown Menu Công cụ Nâng cao / Khác */}
@@ -1095,7 +1110,7 @@ export function ModelQCPage({
 
             {showMoreToolsMenu && (
               <div className="qc-dropdown-menu">
-                <div className="qc-dropdown-section-title">Dữ liệu & Model</div>
+                <div className="qc-dropdown-section-title">Dữ liệu và mô hình</div>
                 <button
                   type="button"
                   className="qc-dropdown-item"
@@ -1105,7 +1120,7 @@ export function ModelQCPage({
                   }}
                 >
                   <Upload size={15} style={{ color: "var(--accent)" }} />
-                  <span>Upload Predictions JSON</span>
+                  <span>Nhập dự đoán từ tệp JSON</span>
                 </button>
                 <button
                   type="button"
@@ -1116,7 +1131,7 @@ export function ModelQCPage({
                   }}
                 >
                   <Sparkles size={15} style={{ color: "#c084fc" }} />
-                  <span>Inference Bộ 3 Phương Án B (Triad)</span>
+                  <span>Chạy nhận diện bằng 3 mô hình</span>
                 </button>
                 <button
                   type="button"
@@ -1127,11 +1142,11 @@ export function ModelQCPage({
                   }}
                 >
                   <Bot size={15} style={{ color: "#38bdf8" }} />
-                  <span>Chạy Detector Batch (Cũ)</span>
+                  <span>Nhận diện toàn bộ ảnh (công cụ cũ)</span>
                 </button>
 
                 <div className="qc-dropdown-divider" />
-                <div className="qc-dropdown-section-title">Thử nghiệm & Benchmark</div>
+                <div className="qc-dropdown-section-title">Thử nghiệm và đánh giá</div>
                 <button
                   type="button"
                   className="qc-dropdown-item"
@@ -1141,7 +1156,7 @@ export function ModelQCPage({
                   }}
                 >
                   <Sparkles size={15} style={{ color: "#facc15" }} />
-                  <span>Simulate Benchmark Sandbox</span>
+                  <span>Tạo dữ liệu lỗi mô phỏng</span>
                 </button>
 
                 <div className="qc-dropdown-divider" />
@@ -1166,14 +1181,14 @@ export function ModelQCPage({
                   }}
                 >
                   <Workflow size={15} style={{ color: "#10b981" }} />
-                  <span>Sơ đồ Kiến trúc CVAT × QC</span>
+                  <span>Cách AnnoPilot kết nối với CVAT</span>
                 </button>
               </div>
             )}
           </div>
 
           {/* Action 6: Nút Refresh icon */}
-          <button className="icon-button" title="Làm mới dữ liệu QC" disabled={busy} onClick={() => void loadQCData()}>
+          <button className="icon-button" title="Tải lại kết quả kiểm tra nhãn" disabled={busy} onClick={() => void loadQCData()}>
             <RotateCcw size={16} />
           </button>
         </div>
@@ -1185,12 +1200,12 @@ export function ModelQCPage({
             <Layers size={20} style={{ color: "#c084fc", flexShrink: 0 }} />
             <div>
               <strong style={{ color: "#d8b4fe", fontSize: "0.95rem" }}>
-                Multi-Model WBF: Đã kết hợp thành công {ensembleResult.total_fused_predictions} bounding boxes từ {ensembleResult.models_used?.join(", ")}
+                Multi-Model WBF: Đã kết hợp thành công {ensembleResult.total_fused_predictions} khung bao từ {ensembleResult.models_used?.join(", ")}
               </strong>
               <div style={{ fontSize: "0.85rem", color: "#e9d5ff", marginTop: "2px" }}>
-                🎯 Tier 1 (Đồng thuận cao): <strong>{ensembleResult.tier_breakdown?.tier_1_high_consensus || 0}</strong> ({ensembleResult.total_fused_predictions ? Math.round(((ensembleResult.tier_breakdown?.tier_1_high_consensus || 0) / ensembleResult.total_fused_predictions) * 100) : 0}%) ·{" "}
-                ⚠️ Tier 2 (Bất đồng class): <strong>{ensembleResult.tier_breakdown?.tier_2_class_disagreement || 0}</strong> ·{" "}
-                🔍 Tier 3 (Chỉ 1 model): <strong>{ensembleResult.tier_breakdown?.tier_3_model_divergence || 0}</strong>
+                Mức 1 · Đồng thuận cao: <strong>{ensembleResult.tier_breakdown?.tier_1_high_consensus || 0}</strong> ({ensembleResult.total_fused_predictions ? Math.round(((ensembleResult.tier_breakdown?.tier_1_high_consensus || 0) / ensembleResult.total_fused_predictions) * 100) : 0}%) ·{" "}
+                Mức 2 · Khác loại: <strong>{ensembleResult.tier_breakdown?.tier_2_class_disagreement || 0}</strong> ·{" "}
+                Mức 3 · Chưa đủ đồng thuận: <strong>{ensembleResult.tier_breakdown?.tier_3_model_divergence || 0}</strong>
               </div>
             </div>
           </div>
@@ -1203,7 +1218,7 @@ export function ModelQCPage({
                 setShowCVATPushModal(true);
               }}
             >
-              <Send size={14} /> Đẩy Pre-label sang CVAT
+              <Send size={14} /> Gửi nhãn gợi ý sang CVAT
             </button>
             <button
               className="icon-button"
@@ -1223,7 +1238,7 @@ export function ModelQCPage({
             <div>
               <strong style={{ color: "#86efac", fontSize: "0.95rem" }}>{cvatPushResult.message}</strong>
               <div style={{ fontSize: "0.85rem", color: "#bbf7d0", marginTop: "2px" }}>
-                Đã đẩy thành công {cvatPushResult.pushed_shapes_count} bounding boxes sang CVAT Task #{cvatPushResult.cvat_task_id || dataset.cvat_task_id} (Job #{cvatPushResult.cvat_job_id || dataset.cvat_job_id}).
+                Đã đẩy thành công {cvatPushResult.pushed_shapes_count} khung bao sang tác vụ CVAT #{cvatPushResult.cvat_task_id || dataset.cvat_task_id} (công việc #{cvatPushResult.cvat_job_id || dataset.cvat_job_id}).
               </div>
             </div>
           </div>
@@ -1247,10 +1262,11 @@ export function ModelQCPage({
       )}
 
       {error && (
-        <div className="alert error">
+        <div className="alert error" role="alert">
           <AlertTriangle size={18} />
           <span>{error}</span>
-          <button className="icon-button" onClick={() => setError("")}>
+          <button className="secondary" disabled={loading} onClick={() => void loadQCData()}>Tải lại dữ liệu</button>
+          <button className="icon-button" aria-label="Đóng thông báo lỗi" onClick={() => setError("")}>
             <X size={14} />
           </button>
         </div>
@@ -1262,7 +1278,7 @@ export function ModelQCPage({
           <div className="qc-streaming-banner-header">
             <div className="qc-streaming-banner-title">
               <Radio size={18} className={isQueueRunning ? "text-accent animate-pulse" : "text-muted"} />
-              <span>Hàng đợi kiểm tra Streaming Frame-by-Frame</span>
+              <span>Tiến độ kiểm tra từng ảnh</span>
               {queueStatus?.status === "RUNNING" && (
                 <span className="qc-streaming-pill-running">
                   <LoaderCircle size={12} className="spin" /> Đang chạy
@@ -1270,7 +1286,7 @@ export function ModelQCPage({
               )}
               {queueStatus?.status === "COMPLETED" && (
                 <span className="qc-streaming-pill-completed">
-                  <CheckCircle2 size={12} /> Đã hoàn thành ({queueStatus.total_frames} frames)
+                  <CheckCircle2 size={12} /> Đã hoàn thành ({queueStatus.total_frames} ảnh)
                 </span>
               )}
               {queueStatus?.status === "PAUSED" && (
@@ -1309,7 +1325,7 @@ export function ModelQCPage({
 
           <div className="qc-streaming-banner-meta">
             <div>
-              <span>Tiến độ: <strong>{queueStatus?.processed_frames || 0}</strong> / {queueStatus?.total_frames || 0} frames ({queueStatus?.progress_percent || 0}%)</span>
+              <span>Tiến độ: <strong>{queueStatus?.processed_frames || 0}</strong> / {queueStatus?.total_frames || 0} ảnh ({queueStatus?.progress_percent || 0}%)</span>
               {queueStatus?.current_frame_name && (
                 <span style={{ marginLeft: "1rem" }}>
                   Đang xử lý: <code style={{ color: "#38bdf8" }}>{queueStatus.current_frame_name}</code>
@@ -1317,7 +1333,7 @@ export function ModelQCPage({
               )}
             </div>
             <div>
-              <span>Phát hiện nghi vấn: <strong style={{ color: "#f87171" }}>{queueStatus?.flagged_frames_count || 0} frames</strong></span>
+              <span>Phát hiện nghi vấn: <strong style={{ color: "#f87171" }}>{queueStatus?.flagged_frames_count || 0} ảnh</strong></span>
             </div>
           </div>
         </div>
@@ -1336,6 +1352,15 @@ export function ModelQCPage({
         </div>
       )}
 
+      <section className="card beginner-guide" aria-labelledby="qc-start-title">
+        <h2 id="qc-start-title">Bạn muốn làm gì?</h2>
+        <div className="beginner-paths">
+          <div><strong>Đã có nhãn, muốn tìm lỗi</strong><p>Bấm <b>Kiểm tra nhãn bằng AI</b>, chọn một ảnh trong danh sách và đối chiếu vùng nghi vấn.</p></div>
+          <div><strong>Ảnh chưa có nhãn</strong><p>Mở <b>Tạo nhãn gợi ý (WBF)</b>, chạy nhận diện rồi gửi nhãn gợi ý sang CVAT để kiểm tra và sửa.</p></div>
+          <div><strong>Đã sửa nhãn trên CVAT</strong><p>Lưu trên CVAT, sau đó bấm <b>Đồng bộ từ CVAT</b> để cập nhật nhãn và kiểm tra lại nghi vấn.</p></div>
+        </div>
+        <p className="muted">Chưa cần huấn luyện để bắt đầu: bạn có thể dùng các mô hình có sẵn. Điểm nghi vấn giúp chọn ảnh cần xem trước, không phải xác suất nhãn sai.</p>
+      </section>
       <TrainingPanel key={`training-${dataset.id}`} datasetId={dataset.id} datasetName={dataset.name}
         onCheckpointChanged={async model => {
           if (model === 'yolo26n' || model === 'yolo26s') selectYoloModel(model);
@@ -1344,14 +1369,14 @@ export function ModelQCPage({
       <QCEvaluationPanel key={dataset.id} datasetId={dataset.id} />
       <details className="card">
         <summary><strong>Luồng dữ liệu CVAT ↔ AnnoPilot</strong></summary>
-        <p><strong>Lần đầu:</strong> Export CVAT for images kèm ảnh → Upload Dataset vào AnnoPilot → cấu hình URL, Task ID và PAT. Chưa tự tải ảnh/dataset chỉ bằng Task ID.</p>
-        <p><strong>CVAT → AnnoPilot:</strong> Save trên CVAT → Đồng bộ từ CVAT (không chọn file) để kéo nhãn live vào dataset đã có. Chọn XML/BDD100K JSON chỉ nạp snapshot từ file, không xác minh live.</p>
-        <p><strong>AnnoPilot → CVAT:</strong> Chạy WBF → Đẩy nhãn, chọn predictions để tạo pre-label; reviewer sửa và Save trên CVAT → Kiểm tra &amp; Đồng bộ từ CVAT. Accept 1-Click chỉ sửa bản local.</p>
-        <p><strong>Phạm vi:</strong> Để trống Job ID để dùng toàn Task. Chỉ chọn Job nếu mọi ảnh của dataset nằm trong Job đó. Append bổ sung box mới, không sửa box sai class cũ; Replace thay box 2D trên các frame của dataset, cần kiểm tra snapshot trước khi dùng.</p>
+        <p><strong>Lần đầu:</strong> Xuất tác vụ từ CVAT theo định dạng CVAT for images kèm ảnh, rồi dùng Thêm bộ dữ liệu. Cấu hình địa chỉ CVAT, mã tác vụ (Task ID) và mã truy cập (PAT) trong Công cụ khác. Chỉ nhập mã tác vụ chưa đủ để tải ảnh về.</p>
+        <p><strong>Lấy nhãn về:</strong> Lưu các thay đổi trên CVAT, rồi bấm Đồng bộ từ CVAT và để trống phần chọn tệp. Nếu chọn tệp XML / JSON, ứng dụng chỉ đọc bản nhãn trong tệp, chưa kiểm tra nhãn hiện tại trên CVAT.</p>
+        <p><strong>Gửi nhãn đi:</strong> Sau khi tạo nhãn gợi ý, bấm Gửi nhãn sang CVAT và chọn nguồn Nhãn gợi ý từ AI. Kiểm tra, sửa và lưu trên CVAT, rồi đồng bộ về. Nút Áp dụng gợi ý tại AnnoPilot chỉ sửa bản nhãn trong ứng dụng này.</p>
+        <p><strong>Chọn cách gửi:</strong> Thêm khung bao mới giữ nguyên khung cũ, kể cả khung đang sai loại. Thay thế khung bao sẽ thay các khung 2D trên ảnh thuộc bộ dữ liệu; cần lấy nhãn mới nhất từ CVAT về trước. Để trống Job ID nếu muốn dùng toàn tác vụ.</p>
       </details>
       {report && ((report.unprocessed_samples_count || 0) > 0 || (report.inference_error_samples_count || 0) > 0) && (
         <p role="status" className="card text-warning" style={{ padding: '1rem' }}>
-          Độ phủ chưa đầy đủ: {report.unprocessed_samples_count || 0} frame chưa inference/import prediction; {report.inference_error_samples_count || 0} frame có lỗi inference. Không dùng các frame này để kết luận chất lượng.
+          Độ phủ chưa đầy đủ: {report.unprocessed_samples_count || 0} ảnh chưa có dự đoán; {report.inference_error_samples_count || 0} ảnh bị lỗi nhận diện. Chưa thể kết luận chất lượng các ảnh này.
         </p>
       )}
       {/* KPI Metrics Dashboard Cards */}
@@ -1360,7 +1385,7 @@ export function ModelQCPage({
           {/* Workload Reduction */}
           <div className="card qc-kpi-card highlight-kpi">
             <div className="qc-kpi-top">
-              <span className="qc-kpi-label">Frame không có cảnh báo</span>
+              <span className="qc-kpi-label">Ảnh chưa có cảnh báo</span>
               <TrendingDown size={20} className="text-success" />
             </div>
             <div className="qc-kpi-value">
@@ -1373,14 +1398,14 @@ export function ModelQCPage({
               />
             </div>
             <p className="qc-kpi-note">
-              <strong>{report.clean_samples_count}</strong> / {report.total_samples} frame không có cảnh báo. Chưa chứng minh nhãn đúng hoặc công review đã giảm.
+              <strong>{report.clean_samples_count}</strong> / {report.total_samples} ảnh chưa có cảnh báo. Vẫn cần kiểm tra để xác nhận chất lượng nhãn.
             </p>
           </div>
 
           {/* Flagged Samples */}
           <div className="card qc-kpi-card">
             <div className="qc-kpi-top">
-              <span className="qc-kpi-label">Cần Review (Flagged)</span>
+              <span className="qc-kpi-label">Ảnh cần kiểm tra</span>
               <ShieldAlert size={20} className="text-warning" />
             </div>
             <div className="qc-kpi-value text-warning">
@@ -1388,35 +1413,35 @@ export function ModelQCPage({
               <small> / {report.total_samples}</small>
             </div>
             <div className="qc-pill-row">
-              <span className="pill pill-high">HIGH: {report.severity_breakdown.HIGH || 0}</span>
-              <span className="pill pill-med">MED: {report.severity_breakdown.MEDIUM || 0}</span>
-              <span className="pill pill-low">LOW: {report.severity_breakdown.LOW || 0}</span>
+              <span className="pill pill-high">Cao: {report.severity_breakdown.HIGH || 0}</span>
+              <span className="pill pill-med">Vừa: {report.severity_breakdown.MEDIUM || 0}</span>
+              <span className="pill pill-low">Thấp: {report.severity_breakdown.LOW || 0}</span>
             </div>
-            <p className="qc-kpi-note">Được tự động ưu tiên xếp hạng theo QC Score.</p>
+            <p className="qc-kpi-note">Ảnh có điểm nghi vấn cao được xếp trước.</p>
           </div>
 
           {/* Missing Objects */}
           <div className="card qc-kpi-card">
             <div className="qc-kpi-top">
-              <span className="qc-kpi-label">Sót vật thể (Missing)</span>
+              <span className="qc-kpi-label">Có thể thiếu vật thể</span>
               <ScanSearch size={20} className="text-accent" />
             </div>
             <div className="qc-kpi-value text-accent">
               {report.total_missing_candidates}
             </div>
-            <p className="qc-kpi-note">Model thấy vật thể nhưng annotator chưa vẽ bounding box.</p>
+            <p className="qc-kpi-note">AI phát hiện vật thể chưa có khung bao trong nhãn hiện tại.</p>
           </div>
 
           {/* Wrong Classes */}
           <div className="card qc-kpi-card">
             <div className="qc-kpi-top">
-              <span className="qc-kpi-label">Sai Class (Wrong Class)</span>
+              <span className="qc-kpi-label">Có thể sai loại vật thể</span>
               <AlertTriangle size={20} className="text-purple" />
             </div>
             <div className="qc-kpi-value text-purple">
               {report.total_wrong_class_candidates}
             </div>
-            <p className="qc-kpi-note">Box trùng nhau nhưng class không khớp theo ma trận nhầm lẫn.</p>
+            <p className="qc-kpi-note">Khung bao gần trùng nhau nhưng AI và nhãn hiện tại ghi loại vật thể khác nhau.</p>
           </div>
         </div>
       )}
@@ -1429,7 +1454,7 @@ export function ModelQCPage({
           <button
             className="sidebar-toggle-btn"
             onClick={() => setIsSidebarOpen((v) => !v)}
-            title={isSidebarOpen ? "Đóng sidebar hàng đợi" : "Mở sidebar hàng đợi"}
+            title={isSidebarOpen ? "Ẩn danh sách ảnh" : "Hiện danh sách ảnh"}
           >
             {isSidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
             {!isSidebarOpen && (
@@ -1441,8 +1466,8 @@ export function ModelQCPage({
           {isSidebarOpen && (
             <div className="qc-queue-header">
               <div>
-                <h3>Hàng đợi ưu tiên review</h3>
-                <p className="muted small">Xếp theo độ nghi vấn (QC Score cao nhất ở trên cùng)</p>
+                <h3>Danh sách ảnh cần kiểm tra</h3>
+                <p className="muted small">Điểm nghi vấn cao nhất được xếp trên cùng</p>
               </div>
               <span className="badge badge-primary">{filteredQueue.length} ảnh</span>
             </div>
@@ -1473,7 +1498,7 @@ export function ModelQCPage({
                     className={`pill-btn ${severityFilter === lvl ? "active" : ""}`}
                     onClick={() => setSeverityFilter(lvl)}
                   >
-                    {lvl}
+                    {lvl === 'ALL' ? 'Tất cả' : displayLabel(lvl)}
                   </button>
                 ))}
               </div>
@@ -1495,7 +1520,7 @@ export function ModelQCPage({
                   className={`pill-btn ${issueTypeFilter === "WRONG_CLASS" ? "active" : ""}`}
                   onClick={() => setIssueTypeFilter("WRONG_CLASS")}
                 >
-                  Chỉ sai class
+                  Chỉ sai loại vật thể
                 </button>
               </div>
             </div>
@@ -1518,9 +1543,10 @@ export function ModelQCPage({
                 filteredQueue.map((item, idx) => {
                   const isSelected = selectedSample?.id === item.id;
                   const issues = item.qc_issues || [];
-                  const missingCount = issues.filter((i) => i.issue_type === "MISSING_OBJECT").length;
-                  const wrongCount = issues.filter((i) => i.issue_type === "WRONG_CLASS").length;
-                  const resolvedCount = issues.filter((i) => i.status !== "PENDING").length;
+                  const missingCount = item.qc_issue_counts?.missing ?? issues.filter((i) => i.issue_type === "MISSING_OBJECT").length;
+                  const wrongCount = item.qc_issue_counts?.wrong ?? issues.filter((i) => i.issue_type === "WRONG_CLASS").length;
+                  const resolvedCount = item.qc_issue_counts?.resolved ?? issues.filter((i) => i.status !== "PENDING").length;
+                  const issueCount = item.qc_issue_counts?.total ?? issues.length;
 
                   return (
                     <div
@@ -1535,10 +1561,10 @@ export function ModelQCPage({
                           className={`badge qc-score-badge ${item.qc_severity ? item.qc_severity.toLowerCase() : ""
                             }`}
                         >
-                          Score: {(item.qc_score || 0).toFixed(3)}
+                          Điểm nghi vấn: {(item.qc_score || 0).toFixed(3)}
                         </span>
                         <span className={`badge ${item.qc_severity ? item.qc_severity.toLowerCase() : "clean"}`}>
-                          {item.qc_processing_state === 'ERROR' ? 'Lỗi inference' : item.qc_processing_state === 'NOT_RUN' ? 'Chưa inference' : item.qc_severity === 'CLEAN' ? 'Không có cảnh báo' : item.qc_severity}
+                          {item.qc_processing_state === 'ERROR' ? 'Lỗi nhận diện' : item.qc_processing_state === 'NOT_RUN' ? 'Chưa chạy nhận diện' : displayLabel(item.qc_severity || 'CLEAN')}
                         </span>
                       </div>
 
@@ -1548,14 +1574,14 @@ export function ModelQCPage({
 
                       <div className="qc-item-chips">
                         <span className="chip chip-frame">
-                          Frame #{item.frame_number ?? (item.id - 1)}
+                          Ảnh #{item.frame_number ?? (item.id - 1)}
                         </span>
                         <a
                           href={getSampleCVATUrl(item)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="queue-cvat-link"
-                          title="Mở frame này trong CVAT"
+                          title="Mở ảnh này trên CVAT"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <ExternalLink size={11} /> CVAT
@@ -1564,16 +1590,16 @@ export function ModelQCPage({
                           <span className="chip chip-missing">+{missingCount} Sót</span>
                         )}
                         {wrongCount > 0 && (
-                          <span className="chip chip-wrong">+{wrongCount} Sai Class</span>
+                          <span className="chip chip-wrong">+{wrongCount} Sai loại</span>
                         )}
-                        {issues.length > 0 && resolvedCount === issues.length && (
+                        {issueCount > 0 && resolvedCount === issueCount && (
                           <span className="chip chip-resolved">
                             <Check size={10} /> Đã sửa hết
                           </span>
                         )}
-                        {issues.length === 0 && (
+                        {issueCount === 0 && (
                           <span className="chip chip-clean">
-                            <ShieldCheck size={10} /> Không có lỗi
+                            <ShieldCheck size={10} /> Chưa có nghi vấn
                           </span>
                         )}
                       </div>
@@ -1594,7 +1620,7 @@ export function ModelQCPage({
                 <div style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
                   <div>
                     <div className="eyebrow">
-                      SAMPLE #{selectedSample.id} · FRAME #{selectedSample.frame_number ?? (selectedSample.id - 1)} · {selectedSample.task_type}
+                      MẪU #{selectedSample.id} · ẢNH #{selectedSample.frame_number ?? (selectedSample.id - 1)} · {selectedSample.task_type}
                     </div>
                     <h2>{selectedSample.file_name}</h2>
                   </div>
@@ -1603,10 +1629,10 @@ export function ModelQCPage({
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn-cvat-primary"
-                    title="Mở trực tiếp frame này trong CVAT Annotation Editor để kiểm tra hoặc sửa nhãn"
+                    title="Mở đúng ảnh này trên CVAT để xem và sửa nhãn"
                   >
                     <ExternalLink size={16} />
-                    <span>Open in CVAT (Frame #{selectedSample.frame_number ?? (selectedSample.id - 1)})</span>
+                    <span>Sửa trong CVAT (ảnh #{selectedSample.frame_number ?? (selectedSample.id - 1)})</span>
                   </a>
                   <button
                     type="button"
@@ -1614,10 +1640,10 @@ export function ModelQCPage({
                     style={{ padding: "0.45rem 0.85rem", fontSize: "0.85rem", display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
                     disabled={busy || auditingFrameId === selectedSample.id}
                     onClick={() => handleAuditSingleFrame(selectedSample.id)}
-                    title="Chạy lại phát hiện và đối soát riêng frame này theo yêu cầu"
+                    title="Chạy nhận diện lại ảnh này rồi đối chiếu với nhãn hiện tại"
                   >
                     <RefreshCw size={14} className={auditingFrameId === selectedSample.id ? "spin" : ""} />
-                    <span>Kiểm tra lại Frame</span>
+                    <span>Kiểm tra lại ảnh này</span>
                   </button>
                 </div>
 
@@ -1627,16 +1653,16 @@ export function ModelQCPage({
                   <button
                     className={`toggle-btn ${showGT ? "active gt" : ""}`}
                     onClick={() => setShowGT(!showGT)}
-                    title="Bật/Tắt nhãn người gán (Ground Truth)"
+                    title="Ẩn hoặc hiện nhãn hiện có để đối chiếu với AI"
                   >
                     <span className="color-dot gt" /> Nhãn người ({selectedSample.annotations?.length || 0})
                   </button>
                   <button
                     className={`toggle-btn ${showPred ? "active pred" : ""}`}
                     onClick={() => setShowPred(!showPred)}
-                    title="Bật/Tắt dự đoán của Pretrained Model"
+                    title="Ẩn hoặc hiện khung bao do AI dự đoán"
                   >
-                    <span className="color-dot pred" /> Model ({displayedPredictions.length})
+                    <span className="color-dot pred" /> AI ({displayedPredictions.length})
                   </button>
                   <button
                     className={`toggle-btn ${showIssues ? "active issue" : ""}`}
@@ -1663,21 +1689,21 @@ export function ModelQCPage({
                           color: activeModel.startsWith("ensemble_") ? "#d8b4fe" : "var(--text)",
                           fontWeight: 600,
                         }}
-                        title="Lọc nguồn model hiển thị trên ảnh (tránh chồng lấn nhiều model)"
+                        title="Chọn mô hình có khung bao bạn muốn xem trên ảnh"
                       >
                         {sampleModels.some((m) => m.startsWith("ensemble_")) && (
                           <option value={sampleModels.find((m) => m.startsWith("ensemble_"))}>
-                            ⭐ Chỉ hiện Ensemble WBF (Đồng thuận)
+                            Chỉ hiện kết quả đã hợp nhất từ nhiều mô hình
                           </option>
                         )}
                         {sampleModels
                           .filter((m) => !m.startsWith("ensemble_"))
                           .map((m) => (
                             <option key={m} value={m}>
-                              Model: {m}
+                              Mô hình: {m}
                             </option>
                           ))}
-                        <option value="all">Tất cả mô hình ({selectedSample.predictions?.length || 0} boxes - Debug)</option>
+                        <option value="all">Tất cả mô hình ({selectedSample.predictions?.length || 0} khung bao · chi tiết kỹ thuật)</option>
                       </select>
                     </div>
                   )}
@@ -1706,7 +1732,7 @@ export function ModelQCPage({
                   {/* Min Confidence Threshold Selector */}
                   {showPred && (
                     <div style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", marginLeft: "0.25rem" }}>
-                      <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>Min Conf:</span>
+                      <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>Độ tin cậy tối thiểu:</span>
                       <select
                         value={String(minPredConf)}
                         onChange={(e) => setMinPredConf(parseFloat(e.target.value))}
@@ -1718,7 +1744,7 @@ export function ModelQCPage({
                           border: "1px solid rgba(255, 255, 255, 0.15)",
                           color: "var(--text)",
                         }}
-                        title="Lọc bỏ các dự đoán model có độ tin cậy thấp"
+                        title="Ẩn dự đoán có độ tin cậy thấp hơn ngưỡng đã chọn"
                       >
                         <option value="0.25">25% (Rộng)</option>
                         <option value="0.35">35% (Chuẩn)</option>
@@ -1768,18 +1794,18 @@ export function ModelQCPage({
                       onClick={handleFitZoom}
                       title="Căn vừa khung nhìn"
                     >
-                      <Maximize2 size={12} /> Fit
+                      <Maximize2 size={12} /> Vừa khung
                     </button>
                   </div>
 
                   <div className="toolbar-group zoom-status-hint">
                     {zoomScale > 1 ? (
                       <span className="pan-active-hint">
-                        <Move size={12} /> Kéo chuột để di chuyển (Pan) · Cuộn chuột để zoom
+                        <Move size={12} /> Kéo để di chuyển ảnh · Cuộn chuột để phóng to / thu nhỏ
                       </span>
                     ) : (
                       <span className="zoom-default-hint">
-                        💡 Cuộn chuột trên ảnh để zoom · Bấm snapshot ở thẻ để tự zoom cận cảnh
+                        Cuộn chuột để phóng to · Bấm ảnh thu nhỏ của nghi vấn để xem cận cảnh
                       </span>
                     )}
                   </div>
@@ -2046,19 +2072,19 @@ export function ModelQCPage({
 
                 <div className="qc-stage-legend">
                   <span>
-                    <i className="legend-dot gt" /> Nhãn người gán (Ground Truth)
+                    <i className="legend-dot gt" /> Nhãn hiện có
                   </span>
                   <span>
-                    <i className="legend-dot pred" /> Model ({activeModel.startsWith("ensemble_") ? "⭐ Ensemble WBF" : activeModel})
+                    <i className="legend-dot pred" /> AI ({activeModel.startsWith("ensemble_") ? "⭐ Ensemble WBF" : activeModel})
                   </span>
                   <span>
-                    <i className="legend-dot wrong-class" /> [⇄] Sai Class (Tím)
+                    <i className="legend-dot wrong-class" /> [⇄] Có thể sai loại (tím)
                   </span>
                   <span>
                     <i className="legend-dot missing" /> [!] Sót vật thể (Đỏ)
                   </span>
                   <span style={{ marginLeft: "auto", fontSize: "0.78rem", color: "var(--muted)" }}>
-                    💡 Rê chuột vào box để xem chi tiết nhãn · Bấm pin để cuộn xuống xử lý
+                    Rê chuột vào khung bao để xem nhãn · Bấm số nghi vấn để xem cách xử lý
                   </span>
                 </div>
               </div>
@@ -2068,11 +2094,11 @@ export function ModelQCPage({
                 <div className="qc-issues-heading">
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
                     <h3>
-                      Bất đồng phát hiện trên frame này ({selectedSample.qc_issues?.length || 0} nghi vấn)
+                      Các nghi vấn trên ảnh này ({selectedSample.qc_issues?.length || 0} nghi vấn)
                     </h3>
                   </div>
                   <p className="muted small">
-                    Mỗi nghi vấn được đánh số thứ tự (#1, #2, ...) tương ứng chính xác với box trên ảnh. Đối chiếu nhãn và bấm 1-Click để xử lý.
+                    Số #1, #2… của mỗi nghi vấn tương ứng với khung bao trên ảnh. Đối chiếu nhãn với ảnh gốc, rồi chọn cách xử lý bên dưới.
                   </p>
                 </div>
 
@@ -2107,7 +2133,7 @@ export function ModelQCPage({
                         </div>
                         <div>
                           <div style={{ fontWeight: 700, color: "#f3e8ff", fontSize: "0.95rem" }}>
-                            Có {tier1Issues.length} / {pendingIssues.length} nghi vấn đồng thuận cao (Tier 1)
+                            Có {tier1Issues.length} / {pendingIssues.length} nghi vấn đồng thuận cao (mức 1)
                           </div>
                           <div style={{ fontSize: "0.82rem", color: "#d8b4fe", marginTop: "2px" }}>
                             Đồng thuận chỉ là tín hiệu ưu tiên. Reviewer cần kiểm tra bằng chứng trước khi chấp nhận các gợi ý.
@@ -2133,7 +2159,7 @@ export function ModelQCPage({
                         }}
                         disabled={busy}
                         onClick={() => handleBatchResolveConsensus(1)}
-                        title="Áp dụng các gợi ý Tier 1 sau khi reviewer đã kiểm tra"
+                        title="Chỉ áp dụng các gợi ý mức đồng thuận cao sau khi bạn đã xem ảnh. Thay đổi được lưu trong AnnoPilot."
                       >
                         <Zap size={15} />
                         <span>Đã kiểm tra: chấp nhận gợi ý ({tier1Issues.length})</span>
@@ -2170,9 +2196,9 @@ export function ModelQCPage({
                   <div className="qc-clean-banner">
                     <ShieldCheck size={28} className="text-success" />
                     <div>
-                      <h4>Frame hoàn toàn đồng thuận (Clean)</h4>
+                      <h4>Ảnh chưa có nghi vấn</h4>
                       <p className="muted">
-                        Chưa có cảnh báo trên frame này. Kiểm tra trạng thái inference và kiểm toán độc lập trước khi kết luận chất lượng nhãn.
+                        Ảnh này chưa có cảnh báo. Cần chắc chắn AI đã nhận diện ảnh và kiểm tra thủ công trước khi kết luận nhãn đúng.
                       </p>
                     </div>
                   </div>
@@ -2205,17 +2231,17 @@ export function ModelQCPage({
                               {issue.issue_type === "MISSING_OBJECT" ? (
                                 <>
                                   <ScanSearch size={16} />
-                                  <strong>SÓT VẬT THỂ (MISSING OBJECT)</strong>
+                                  <strong>CÓ THỂ THIẾU VẬT THỂ</strong>
                                 </>
                               ) : (
                                 <>
                                   <AlertTriangle size={16} />
-                                  <strong>SAI PHÂN LOẠI (WRONG CLASS)</strong>
+                                  <strong>CÓ THỂ SAI LOẠI VẬT THỂ</strong>
                                 </>
                               )}
                               {g && (
                                 <span className="qc-box-coords-chip" title="Tọa độ Bounding Box [x1, y1 · width × height]">
-                                  Box [{Math.round(g.x1)}, {Math.round(g.y1)} · {Math.round(g.x2 - g.x1)}×{Math.round(g.y2 - g.y1)}px]
+                                  Khung [{Math.round(g.x1)}, {Math.round(g.y1)} · {Math.round(g.x2 - g.x1)}×{Math.round(g.y2 - g.y1)}px]
                                 </span>
                               )}
                             </div>
@@ -2227,20 +2253,20 @@ export function ModelQCPage({
                                   style={{ background: "rgba(168, 85, 247, 0.22)", color: "#d8b4fe", border: "1px solid rgba(168, 85, 247, 0.55)", fontWeight: 700 }}
                                   title={issue.evidence.tier_reason || "Đồng thuận cao giữa các kiến trúc mô hình (WBF)"}
                                 >
-                                  ⭐ Đồng thuận {issue.evidence.num_models_agreed || 2}/3 Model
+                                  Đồng thuận cao · {issue.evidence.num_models_agreed ?? 'Nhiều'} mô hình
                                 </span>
                               )}
                               {issue.evidence?.consensus_tier === 2 && (
                                 <span
                                   className="badge"
                                   style={{ background: "rgba(245, 158, 11, 0.22)", color: "#fcd34d", border: "1px solid rgba(245, 158, 11, 0.55)", fontWeight: 700 }}
-                                  title={issue.evidence.tier_reason || "Bất đồng class giữa các mô hình"}
+                                  title={issue.evidence.tier_reason || "Các mô hình nhận diện loại vật thể khác nhau"}
                                 >
-                                  ⚠️ Bất đồng Class ({issue.evidence.num_models_agreed || 2} models)
+                                  Khác loại vật thể · {issue.evidence.num_models_agreed ?? 'Nhiều'} mô hình
                                 </span>
                               )}
                               <span className="badge badge-accent">
-                                QC Score: {issue.qc_score.toFixed(3)}
+                                Điểm nghi vấn: {issue.qc_score.toFixed(3)}
                               </span>
                               <span
                                 className={`badge ${isPending
@@ -2284,11 +2310,11 @@ export function ModelQCPage({
                             </div>
 
                             <div className="cmp-divider">
-                              <span>vs</span>
+                              <span>so với</span>
                             </div>
 
                             <div className="cmp-col model">
-                              <span className="cmp-label">Pretrained Model Đề Xuất</span>
+                              <span className="cmp-label">AI đề xuất</span>
                               <div className="cmp-val">
                                 <span className="tag tag-model">
                                   {issue.suggested_label}
@@ -2308,12 +2334,12 @@ export function ModelQCPage({
                           </div>
                           {issue.evidence.per_model_predictions?.length > 0 && (
                             <details className="qc-model-evidence">
-                              <summary>Bằng chứng từng model · {issue.evidence.detection_count ?? issue.evidence.contributing_models?.length} model phát hiện</summary>
+                              <summary>Bằng chứng từng mô hình · {issue.evidence.detection_count ?? issue.evidence.contributing_models?.length} mô hình phát hiện</summary>
                               {issue.evidence.per_model_predictions.map((p: any, index: number) => (
-                                <p key={index}><strong>{p.model_id}</strong>: {p.label} · confidence {(p.confidence * 100).toFixed(1)}% · box [{p.geometry.x1}, {p.geometry.y1}, {p.geometry.x2}, {p.geometry.y2}]</p>
+                                <p key={index}><strong>{p.model_id}</strong>: {p.label} · độ tin cậy {(p.confidence * 100).toFixed(1)}% · khung [{p.geometry.x1}, {p.geometry.y1}, {p.geometry.x2}, {p.geometry.y2}]</p>
                               ))}
                               {!!issue.evidence.absent_models?.length && <p>Không có detection tương ứng: {issue.evidence.absent_models.join(', ')}</p>}
-                              <p className="muted">Confidence chưa calibration; đồng thuận không thay thế xác minh của reviewer.</p>
+                              <p className="muted">Độ tin cậy của mô hình chưa phải xác suất nhãn đúng. Bạn vẫn cần xem ảnh để xác nhận.</p>
                             </details>
                           )}
 
@@ -2326,16 +2352,16 @@ export function ModelQCPage({
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="btn-cvat-primary"
-                                  title="Mở frame này trong CVAT Annotation Editor để sửa"
+                                  title="Mở đúng ảnh này trên CVAT để sửa nhãn"
                                 >
                                   <ExternalLink size={15} />
-                                  Mở trên CVAT (Frame #{issue.frame_number ?? (selectedSample.frame_number ?? (selectedSample.id - 1))})
+                                  Mở trong CVAT (ảnh #{issue.frame_number ?? (selectedSample.frame_number ?? (selectedSample.id - 1))})
                                 </a>
                                 <button
                                   className="btn-verify-frame-cvat"
                                   disabled={busy || verifyingFrameId === selectedSample.id}
                                   onClick={() => handleVerifyFrameCVAT(selectedSample.id)}
-                                  title="Kiểm tra xem nhãn/box trên CVAT đã được sửa chưa để tự động giải phóng cảnh báo"
+                                  title="Đọc nhãn đã lưu trên CVAT và đối chiếu lại để gỡ các nghi vấn đã sửa"
                                 >
                                   <RefreshCw size={14} className={verifyingFrameId === selectedSample.id ? "spin" : ""} />
                                   Kiểm tra & Đồng bộ từ CVAT
@@ -2343,8 +2369,8 @@ export function ModelQCPage({
                                 <button
                                   className="btn-resolve-cvat"
                                   disabled={busy}
-                                  onClick={() => handleResolveIssue(issue.id, "RESOLVED", "Ghi nhận thủ công đã sửa; chưa xác minh live CVAT", issue)}
-                                  title="Ghi nhận thủ công. Dùng Kiểm tra & Đồng bộ từ CVAT để đọc nhãn live."
+                                  onClick={() => handleResolveIssue(issue.id, "RESOLVED", "Ghi nhận đã sửa, chưa xác nhận trực tiếp từ CVAT", issue)}
+                                  title="Chỉ ghi nhận rằng bạn đã sửa. Dùng Kiểm tra & Đồng bộ từ CVAT để xác nhận nhãn thực tế."
                                 >
                                   <CheckCircle2 size={15} />
                                   Đã sửa (ghi nhận thủ công)
@@ -2352,27 +2378,27 @@ export function ModelQCPage({
                                 <button
                                   className="btn-accept"
                                   disabled={busy}
-                                  onClick={() => handleResolveIssue(issue.id, "ACCEPTED", "1-Click tự động sửa", issue)}
-                                  title="Tự động thêm box hoặc sửa label ngay lập tức cho demo nhanh"
+                                  onClick={() => handleResolveIssue(issue.id, "ACCEPTED", "Áp dụng gợi ý vào nhãn trong AnnoPilot", issue)}
+                                  title="Thêm khung bao hoặc sửa loại theo gợi ý AI trong AnnoPilot. Chưa gửi thay đổi sang CVAT."
                                 >
                                   <Sparkles size={15} />
-                                  1-Click Sửa tự động (Demo)
+                                  Áp dụng gợi ý tại AnnoPilot
                                 </button>
                                 <button
                                   className="btn-reject"
                                   disabled={busy}
                                   onClick={() => handleResolveIssue(issue.id, "FALSE_POSITIVE", "Báo sai của model", issue)}
-                                  title="Bác bỏ vì đây là báo sai (False Positive) của Pretrained Model"
+                                  title="Đánh dấu AI cảnh báo nhầm và giữ nhãn hiện tại"
                                 >
                                   <X size={15} />
-                                  Báo sai (False Positive)
+                                  Bác bỏ cảnh báo sai
                                 </button>
                               </>
                             ) : isResolved ? (
                               <div className="resolution-status resolved">
                                 <CheckCircle2 size={18} />
                                 <span>
-                                  Cảnh báo đã xử lý. Xem ghi chú để phân biệt ghi nhận thủ công, snapshot file và xác minh live.
+                                  Đã ghi nhận xử lý. Xem ghi chú để biết kết quả được xác nhận trực tiếp từ CVAT hay chỉ ghi nhận thủ công / nhập từ tệp.
                                 </span>
                                 <button
                                   className="btn-undo"
@@ -2386,7 +2412,7 @@ export function ModelQCPage({
                               <div className="resolution-status accepted">
                                 <CheckCircle2 size={18} />
                                 <span>
-                                  Đã sửa tự động: Dữ liệu Ground Truth đã được cập nhật thành công (1-Click).
+                                  Đã cập nhật nhãn trong AnnoPilot. Muốn cập nhật CVAT, hãy dùng Gửi nhãn sang CVAT.
                                 </span>
                                 <button
                                   className="btn-undo"
@@ -2400,7 +2426,7 @@ export function ModelQCPage({
                               <div className="resolution-status false-positive">
                                 <XCircle size={18} />
                                 <span>
-                                  Đã xác nhận False Positive: Giữ nguyên nhãn của người gán.
+                                  Đã bác bỏ cảnh báo. Nhãn hiện tại được giữ nguyên.
                                 </span>
                                 <button
                                   className="btn-undo"
@@ -2438,9 +2464,9 @@ export function ModelQCPage({
             <div className="modal-heading">
               <div>
                 <div className="eyebrow">MÔ PHỎNG KIỂM THỬ TẬP TRUNG</div>
-                <h2>Simulate QC Benchmark</h2>
+                <h2>Tạo lỗi mô phỏng để thử nghiệm</h2>
               </div>
-              <button className="icon-button" onClick={() => setShowBenchmarkModal(false)}>
+              <button className="icon-button" aria-label="Đóng thử nghiệm mô phỏng" onClick={() => setShowBenchmarkModal(false)}>
                 <X size={16} />
               </button>
             </div>
@@ -2497,9 +2523,9 @@ export function ModelQCPage({
             <div className="modal-heading">
               <div>
                 <div className="eyebrow">TÍCH HỢP MÔ HÌNH BÊN NGOÀI</div>
-                <h2>Upload Model Predictions JSON</h2>
+                <h2>Nhập dự đoán của mô hình</h2>
               </div>
-              <button className="icon-button" onClick={() => setShowUploadModal(false)}>
+              <button className="icon-button" aria-label="Đóng cửa sổ nhập dự đoán" onClick={() => setShowUploadModal(false)}>
                 <X size={16} />
               </button>
             </div>
@@ -2511,7 +2537,7 @@ export function ModelQCPage({
             <form onSubmit={handleUploadPredictions}>
               <div className="form-group">
                 <label>
-                  Tên model nhận diện:
+                  Tên mô hình nhận diện:
                   <input
                     type="text"
                     value={uploadSourceModel}
@@ -2524,8 +2550,8 @@ export function ModelQCPage({
               <div className="form-group">
                 <label className="file-drop">
                   <Upload size={24} />
-                  <strong>File dự đoán JSON</strong>
-                  <span>Hỗ trợ JSON format (frames / predictions list)</span>
+                  <strong>Tệp dự đoán JSON</strong>
+                  <span>Tệp JSON cần có danh sách frames / predictions theo định dạng hỗ trợ</span>
                   <input type="file" accept=".json" required />
                 </label>
               </div>
@@ -2550,22 +2576,22 @@ export function ModelQCPage({
             <div className="modal-heading">
               <div>
                 <div className="eyebrow">TÍCH HỢP HỆ THỐNG</div>
-                <h2>Cấu hình kết nối CVAT Server</h2>
+                <h2>Kết nối với CVAT</h2>
               </div>
-              <button className="icon-button" onClick={() => setShowCVATModal(false)}>
+              <button className="icon-button" aria-label="Đóng cấu hình CVAT" onClick={() => setShowCVATModal(false)}>
                 <X size={16} />
               </button>
             </div>
 
             <p className="muted">
-              Kết nối QC Dashboard với phiên bản CVAT của nhóm để kích hoạt cơ chế Deep-link
-              <code> [Open in CVAT] </code> mở thẳng frame cần sửa trong Annotation Editor.
+              Nhập thông tin CVAT của nhóm để dùng nút
+              <code> [Mở trong CVAT] </code> để mở đúng ảnh cần sửa trong trình chỉnh sửa nhãn.
             </p>
 
             <form onSubmit={handleSaveCVATConfig}>
               <div className="form-group">
                 <label>
-                  <span>CVAT Base URL (Server):</span>
+                  <span>Địa chỉ máy chủ CVAT:</span>
                   <input
                     type="url"
                     placeholder="http://localhost:8080"
@@ -2573,53 +2599,53 @@ export function ModelQCPage({
                     onChange={(e) => setCvatBaseUrl(e.target.value)}
                     required
                   />
-                  <small className="muted">Mặc định: http://localhost:8080 (hoặc domain CVAT triển khai của nhóm)</small>
+                  <small className="muted">Ví dụ: http://localhost:8080 hoặc địa chỉ CVAT của nhóm</small>
                 </label>
               </div>
 
               <div className="form-group">
                 <label>
-                  <span>CVAT Task ID:</span>
+                  <span>Mã tác vụ CVAT (Task ID):</span>
                   <input
                     type="number"
                     placeholder="VD: 1, 42"
                     value={cvatTaskId}
                     onChange={(e) => setCvatTaskId(e.target.value)}
                   />
-                  <small className="muted">ID của Task trong CVAT tương ứng với dataset này.</small>
+                  <small className="muted">Lấy số tác vụ trong đường dẫn CVAT, ví dụ /tasks/12 thì nhập 12. Tác vụ phải chứa đúng ảnh của bộ dữ liệu này.</small>
                 </label>
               </div>
 
               <div className="form-group">
                 <label>
-                  <span>CVAT Job ID (Tùy chọn):</span>
+                  <span>Mã công việc CVAT (Job ID, không bắt buộc):</span>
                   <input
                     type="number"
                     placeholder="VD: 1"
                     value={cvatJobId}
                     onChange={(e) => setCvatJobId(e.target.value)}
                   />
-                  <small className="muted">Để trống để sync toàn Task. Chọn Job chỉ khi toàn bộ ảnh của dataset thuộc Job đó; Job ID khác Segment ID.</small>
+                  <small className="muted">Để trống để đồng bộ toàn tác vụ. Chỉ nhập khi tất cả ảnh thuộc cùng một công việc CVAT; mã công việc khác mã phân đoạn.</small>
                 </label>
               </div>
 
               <div className="form-group">
                 <label>
-                  <span>CVAT Personal Access Token (PAT):</span>
+                  <span>Mã truy cập CVAT (PAT):</span>
                   <input
                     type="password"
                     placeholder=""
                     value={cvatToken}
                     onChange={(e) => setCvatToken(e.target.value)}
                   />
-                  <small className="muted">Token dùng để gọi CVAT REST API v2 đẩy/nhận nhãn tự động (Authorization: Bearer PAT).</small>
+                  <small className="muted">Tạo mã truy cập cá nhân trong tài khoản CVAT, rồi dán vào đây để ứng dụng được phép đọc và gửi nhãn.</small>
                 </label>
               </div>
 
               <div className="qc-reason-box" style={{ margin: "1rem 0" }}>
                 <ExternalLink size={16} />
                 <span>
-                  Định dạng Deep-link:{" "}
+                  Định dạng đường dẫn mở ảnh:{" "}
                   <code>
                     {cvatBaseUrl || "http://localhost:8080"}/tasks/{cvatTaskId || "{task_id}"}
                     {cvatJobId ? `/jobs/${cvatJobId}` : ""}?frame={"{"}frame_number{"}"}
@@ -2649,7 +2675,7 @@ export function ModelQCPage({
                 <div className="eyebrow">THIẾT KẾ HỆ THỐNG · ĐỀ TÀI N2-04D</div>
                 <h2>Sơ đồ kiến trúc CVAT × QC Dashboard</h2>
               </div>
-              <button className="icon-button" onClick={() => setShowArchModal(false)}>
+              <button className="icon-button" aria-label="Đóng sơ đồ kết nối" onClick={() => setShowArchModal(false)}>
                 <X size={16} />
               </button>
             </div>
@@ -2664,21 +2690,21 @@ export function ModelQCPage({
                 <div className="arch-tier-header">
                   <div className="arch-tier-title">
                     <Database size={18} className="text-accent" />
-                    <span>CVAT (System of Record)</span>
+                    <span>CVAT · Nơi lưu và sửa nhãn gốc</span>
                   </div>
                   <span className="arch-tier-tag">Nơi sửa dữ liệu</span>
                 </div>
                 <div className="arch-tier-grid">
                   <div className="arch-sub-box">
-                    <strong>Raw Video & Frames</strong>
+                    <strong>Video và ảnh gốc</strong>
                     <p>Lưu trữ hình ảnh gốc theo Frame Index (0, 1, 2... N)</p>
                   </div>
                   <div className="arch-sub-box">
-                    <strong>Annotation Editor</strong>
-                    <p>Giao diện gán nhãn, điều chỉnh bounding box & class</p>
+                    <strong>Trình chỉnh sửa nhãn</strong>
+                    <p>Vẽ khung bao và chọn loại vật thể</p>
                   </div>
                   <div className="arch-sub-box">
-                    <strong>CVAT REST API / Export</strong>
+                    <strong>Kết nối và xuất dữ liệu CVAT</strong>
                     <p>Xuất dữ liệu định dạng COCO / BDD100K JSON</p>
                   </div>
                 </div>
@@ -2698,26 +2724,26 @@ export function ModelQCPage({
                 <div className="arch-tier-header">
                   <div className="arch-tier-title">
                     <Cpu size={18} className="text-purple" />
-                    <span>Model QC Backend & Engine</span>
+                    <span>Bộ xử lý kiểm tra nhãn</span>
                   </div>
                   <span className="arch-tier-tag">Tầng đối soát tự động</span>
                 </div>
                 <div className="arch-tier-grid">
                   <div className="arch-sub-box">
-                    <strong>Pretrained Detector</strong>
-                    <p>Inference dự đoán vị trí & nhãn vật thể (BDD100K classes)</p>
+                    <strong>Mô hình nhận diện đã học sẵn</strong>
+                    <p>Dự đoán vị trí và loại vật thể theo bộ loại BDD100K</p>
                   </div>
                   <div className="arch-sub-box">
-                    <strong>Heuristic Discrepancy Engine</strong>
-                    <p>So khớp IoU, phát hiện Sót vật thể & Sai class</p>
+                    <strong>Bộ đối chiếu khác biệt</strong>
+                    <p>So mức trùng khớp khung bao để tìm vật thể thiếu và nhãn sai loại</p>
                   </div>
                   <div className="arch-sub-box">
-                    <strong>Prioritization & Health Score</strong>
+                    <strong>Xếp hạng nghi vấn</strong>
                     <p>Tính QC Risk Score, đẩy ca bất đồng lên đầu hàng đợi</p>
                   </div>
                   <div className="arch-sub-box">
-                    <strong>Deep-link Generator</strong>
-                    <p>Sinh link trực tiếp tới frame: <code>/tasks/ID/jobs/ID?frame=N</code></p>
+                    <strong>Tạo đường dẫn tới ảnh cần sửa</strong>
+                    <p>Tạo đường dẫn tới đúng ảnh: <code>/tasks/ID/jobs/ID?frame=N</code></p>
                   </div>
                 </div>
               </div>
@@ -2736,33 +2762,33 @@ export function ModelQCPage({
                 <div className="arch-tier-header">
                   <div className="arch-tier-title">
                     <MonitorCheck size={18} className="text-success" />
-                    <span>QC Dashboard (Reviewer Workspace)</span>
+                    <span>Giao diện người kiểm tra</span>
                   </div>
                   <span className="arch-tier-tag">Tầng ra quyết định & Review</span>
                 </div>
                 <div className="arch-tier-grid">
                   <div className="arch-sub-box">
-                    <strong>Overview & Workload Reduction</strong>
-                    <p>Thống kê frame không có cảnh báo; chất lượng cần kiểm chứng độc lập</p>
+                    <strong>Tổng quan kết quả kiểm tra</strong>
+                    <p>Thống kê ảnh chưa có cảnh báo; cần kiểm chứng chất lượng riêng</p>
                   </div>
                   <div className="arch-sub-box">
-                    <strong>Prioritized Review Queue</strong>
+                    <strong>Danh sách ưu tiên kiểm tra</strong>
                     <p>Xếp hạng danh sách ảnh từ nguy cơ cao nhất xuống thấp</p>
                   </div>
                   <div className="arch-sub-box">
-                    <strong>Dual-Layer Visual Diff</strong>
-                    <p>Bật/tắt nhãn người gán, model phát hiện, vùng nghi vấn</p>
+                    <strong>So sánh nhãn và dự đoán trên ảnh</strong>
+                    <p>Ẩn hoặc hiện nhãn hiện có, dự đoán AI và vùng nghi vấn</p>
                   </div>
                   <div className="arch-sub-box">
-                    <strong>Closed-Loop Triage</strong>
-                    <p>Đánh dấu <em>Resolved trên CVAT</em>, <em>1-Click Sửa tự động</em>, hoặc <em>False Positive</em></p>
+                    <strong>Ghi nhận cách xử lý</strong>
+                    <p>Đánh dấu <em>Đã sửa trên CVAT</em>, <em>1-Click Sửa tự động</em>, hoặc <em>Cảnh báo sai</em></p>
                   </div>
                 </div>
               </div>
             </div>
 
             <div className="arch-footer-callout">
-              <strong>Nguyên tắc vận hành:</strong> QC Dashboard không thay thế CVAT mà đóng vai trò là tầng thông minh (Decision Layer). Reviewer dùng QC Dashboard để tìm ra các frame lỗi nhanh nhất, sau đó bấm <code>Open in CVAT</code> để chuyển thẳng sang CVAT sửa dữ liệu nguồn (System of Record).
+              <strong>Nguyên tắc vận hành:</strong> Dùng AnnoPilot để chọn ảnh cần kiểm tra trước, rồi bấm <code>Mở trong CVAT</code> để sửa nhãn gốc trên CVAT. Lưu thay đổi, sau đó đồng bộ lại về AnnoPilot.
             </div>
 
             <div className="modal-actions">
@@ -2781,9 +2807,9 @@ export function ModelQCPage({
             <div className="modal-heading">
               <div>
                 <div className="eyebrow">ĐỒNG BỘ 2-CHIỀU VỚI CVAT</div>
-                <h2>Đồng bộ nhãn từ CVAT (Source of Truth)</h2>
+                <h2>Lấy nhãn mới nhất từ CVAT</h2>
               </div>
-              <button className="icon-button" onClick={() => setShowCVATSyncModal(false)}>
+              <button className="icon-button" aria-label="Đóng cửa sổ lấy nhãn từ CVAT" onClick={() => setShowCVATSyncModal(false)}>
                 <X size={16} />
               </button>
             </div>
@@ -2804,11 +2830,11 @@ export function ModelQCPage({
 
               <div className="form-group">
                 <label>
-                  <span>Hoặc nạp snapshot thủ công (CVAT XML / BDD100K JSON — không phải xác minh live):</span>
+                  <span>Hoặc nhập bản nhãn từ tệp (CVAT XML / BDD100K JSON):</span>
                   <input type="file" accept=".xml,.json" />
                 </label>
                 <small className="muted">
-                  Nếu không chọn file, hệ thống sẽ tự động lấy nhãn trực tiếp từ CVAT server qua REST API theo PAT đã lưu.
+                  Để trống để lấy nhãn mới nhất trực tiếp từ CVAT. Nếu chọn tệp, ứng dụng chỉ nhập bản nhãn trong tệp đó.
                 </small>
               </div>
 
@@ -2831,16 +2857,16 @@ export function ModelQCPage({
           <section className="modal qc-modal">
             <div className="modal-heading">
               <div>
-                <div className="eyebrow">OUTBOUND SYNCHRONIZATION · ANNOTATION PUSH</div>
-                <h2>Đẩy nhãn đã duyệt sang CVAT (REST API)</h2>
+                <div className="eyebrow">GỬI NHÃN SANG CÔNG CỤ CHỈNH SỬA</div>
+                <h2>Gửi nhãn sang CVAT</h2>
               </div>
-              <button className="icon-button" onClick={() => setShowCVATPushModal(false)}>
+              <button className="icon-button" aria-label="Đóng cửa sổ gửi nhãn sang CVAT" onClick={() => setShowCVATPushModal(false)}>
                 <X size={16} />
               </button>
             </div>
 
             <p className="muted">
-              Hệ thống sẽ chuyển đổi toàn bộ bounding box hợp lệ trong AnnoPilot (bao gồm các nhãn đã được Human-in-the-loop duyệt / sửa) thành định dạng chuẩn của CVAT (rectangle) và đẩy trực tiếp vào CVAT Task/Job qua REST API.
+              Chọn nguồn nhãn và cách gửi bên dưới. Các khung bao được chuyển sang CVAT để bạn tiếp tục kiểm tra và chỉnh sửa. Nhãn AI gửi sang vẫn là gợi ý, chưa được coi là nhãn đã duyệt.
             </p>
 
             <form
@@ -2857,19 +2883,19 @@ export function ModelQCPage({
                     onChange={(e) => setCvatPushSource(e.target.value as "merged" | "predictions" | "annotations")}
                   >
                     <option value="merged">
-                      Nhãn local hiện tại + Missing Object đã được duyệt (merged)
+                      Nhãn hiện có + vật thể thiếu đã được chấp nhận
                     </option>
                     <option value="predictions">
-                      🤖 Dự đoán của Model AI (Pre-labeling) — Đẩy toàn bộ vật thể AI phát hiện lên CVAT làm nhãn gợi ý
+                      Nhãn gợi ý từ AI · Cần người kiểm tra lại
                     </option>
                     <option value="annotations">
-                      Nhãn mirror local hiện tại (annotations)
+                      Chỉ nhãn hiện có trong AnnoPilot
                     </option>
                   </select>
                   <small className="muted">
-                    {cvatPushSource === "merged" && "Giữ box trong mirror local, chỉ bổ sung Missing Object ACCEPTED/RESOLVED; không gửi candidate chưa duyệt."}
-                    {cvatPushSource === "predictions" && "Rất phù hợp cho quy trình Pre-labeling: đưa nhãn AI vào CVAT để người dùng chỉnh sửa nhanh."}
-                    {cvatPushSource === "annotations" && "Chỉ xuất các bounding box người gán hiện có trong cơ sở dữ liệu AnnoPilot sang CVAT."}
+                    {cvatPushSource === "merged" && "Giữ khung bao hiện có trong AnnoPilot và bổ sung các vật thể thiếu đã được chấp nhận hoặc ghi nhận xử lý."}
+                    {cvatPushSource === "predictions" && "Gửi dự đoán AI làm nhãn gợi ý để bạn kiểm tra và sửa trên CVAT."}
+                    {cvatPushSource === "annotations" && "Chỉ gửi các khung bao hiện có trong AnnoPilot, không tự thêm dự đoán AI."}
                   </small>
                 </label>
               </div>
@@ -2882,30 +2908,30 @@ export function ModelQCPage({
                     onChange={(e) => setCvatPushMode(e.target.value as "replace" | "create")}
                   >
                     <option value="create">
-                      Bổ sung box mới (Append / Create — không cập nhật box cũ)
+                      Thêm khung bao mới · Giữ nguyên khung bao cũ
                     </option>
                     <option value="replace">
-                      Thay box 2D trên các frame của dataset (Replace)
+                      Thay thế khung bao 2D của các ảnh trong bộ dữ liệu
                     </option>
                   </select>
                   <small className="muted">
                     {cvatPushMode === "create"
-                      ? "Chỉ thêm box chưa trùng chính xác. Sửa sai class phải thao tác trên CVAT rồi sync về, hoặc kiểm tra snapshot và dùng Replace."
-                      : "Thay rectangle trên các frame có trong dataset; giữ frame khác, shape khác loại và tags. Không hỗ trợ round-trip video tracks. Nhãn CVAT chưa kéo về có thể bị thay thế."}
+                      ? "Thêm khung bao chưa trùng chính xác với khung cũ. Cách này không sửa loại của khung cũ; hãy sửa trên CVAT rồi đồng bộ lại."
+                      : "Thay các khung bao 2D trên ảnh thuộc bộ dữ liệu; giữ ảnh khác, dạng nhãn khác và thẻ. Hãy đồng bộ nhãn mới nhất về trước để tránh mất thay đổi trên CVAT. Chưa hỗ trợ gửi lại đường bám vật thể trong video."}
                   </small>
                 </label>
               </div>
 
               <div className="form-group">
                 <label>
-                  <span>CVAT Personal Access Token (PAT):</span>
+                  <span>Mã truy cập CVAT (PAT):</span>
                   <input
                     type="password"
                     value={cvatToken}
                     onChange={(e) => setCvatToken(e.target.value)}
                     required
                   />
-                  <small className="muted">Token dùng để xác thực Bearer với CVAT API.</small>
+                  <small className="muted">Dùng mã truy cập do CVAT cấp để cho phép ứng dụng gửi nhãn.</small>
                 </label>
               </div>
 
@@ -2923,7 +2949,7 @@ export function ModelQCPage({
                   Hủy bỏ
                 </button>
                 <button type="submit" className="primary btn-cvat-primary">
-                  <Send size={16} /> Bắt đầu đẩy nhãn sang CVAT
+                  <Send size={16} /> Gửi nhãn sang CVAT
                 </button>
               </div>
             </form>
@@ -2946,37 +2972,37 @@ export function ModelQCPage({
                 </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700 }}>
-                    Multi-Model Ensemble: Pre-labeling (WBF)
+                    Tạo nhãn gợi ý bằng nhiều mô hình (WBF)
                   </h3>
                   <p className="muted" style={{ margin: 0, fontSize: "0.85rem" }}>
-                    Kết hợp dự đoán đa mô hình bằng Weighted Box Fusion & Phân tầng đồng thuận Tri-Tier
+                    Nhiều mô hình cùng nhận diện ảnh. WBF gộp các khung bao gần trùng nhau và chia kết quả theo mức đồng thuận để bạn kiểm tra.
                   </p>
                 </div>
               </div>
-              <button className="icon-button" onClick={() => setShowEnsembleModal(false)}>
+              <button className="icon-button" aria-label="Đóng cửa sổ tạo nhãn gợi ý" onClick={() => setShowEnsembleModal(false)}>
                 <X size={16} />
               </button>
             </div>
 
-            <WBFExperimentPanel key={dataset.id} datasetId={dataset.id} yoloModel={selectedYoloModel} />
+            <p className="beginner-callout">Nếu mới bắt đầu, giữ nguyên cài đặt và thử với 10 ảnh. Bấm <strong>Nhận diện và tạo nhãn gợi ý</strong> để chạy cả ba mô hình; kết quả cần được người kiểm tra xác nhận trước khi dùng làm nhãn chính thức.</p>
 
             {/* Architecture Explanation Banner */}
             <div style={{ background: "rgba(168, 85, 247, 0.08)", border: "1px solid rgba(168, 85, 247, 0.25)", borderRadius: "10px", padding: "1rem", margin: "1rem 0" }}>
               <div style={{ fontWeight: 600, color: "#d8b4fe", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <Sparkles size={16} /> Cơ chế đồng thuận 3 cấp độ (Tri-Tier Consensus Architecture)
+                <Sparkles size={16} /> Hiểu ba mức kết quả
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem", fontSize: "0.82rem" }}>
                 <div style={{ background: "rgba(34, 197, 94, 0.1)", border: "1px solid rgba(34, 197, 94, 0.3)", borderRadius: "8px", padding: "0.6rem" }}>
-                  <div style={{ fontWeight: 700, color: "#86efac", marginBottom: "4px" }}>🎯 Tier 1: Đồng thuận cao</div>
-                  <div style={{ color: "#dcfce7", lineHeight: "1.3" }}>Các model cùng nhãn với IoU & conf cao → <strong>Đề xuất pre-label, cần xác minh</strong>.</div>
+                  <div style={{ fontWeight: 700, color: "#86efac", marginBottom: "4px" }}>Mức 1 · Đồng thuận cao</div>
+                  <div style={{ color: "#dcfce7", lineHeight: "1.3" }}>Nhiều mô hình cùng nhận diện một loại ở vị trí gần trùng nhau → <strong>Có thể dùng làm nhãn gợi ý sau khi kiểm tra</strong>.</div>
                 </div>
                 <div style={{ background: "rgba(245, 158, 11, 0.1)", border: "1px solid rgba(245, 158, 11, 0.3)", borderRadius: "8px", padding: "0.6rem" }}>
-                  <div style={{ fontWeight: 700, color: "#fcd34d", marginBottom: "4px" }}>⚠️ Tier 2: Bất đồng nhãn</div>
-                  <div style={{ color: "#fef3c7", lineHeight: "1.3" }}>Model trùng vị trí nhưng lệch class (e.g. car vs truck) → <strong>Gắn cờ 1-Click review</strong>.</div>
+                  <div style={{ fontWeight: 700, color: "#fcd34d", marginBottom: "4px" }}>Mức 2 · Khác loại vật thể</div>
+                  <div style={{ color: "#fef3c7", lineHeight: "1.3" }}>Cùng vị trí nhưng khác loại, ví dụ ô tô và xe tải → <strong>Cần bạn chọn loại đúng</strong>.</div>
                 </div>
                 <div style={{ background: "rgba(56, 189, 248, 0.1)", border: "1px solid rgba(56, 189, 248, 0.3)", borderRadius: "8px", padding: "0.6rem" }}>
-                  <div style={{ fontWeight: 700, color: "#7dd3fc", marginBottom: "4px" }}>🔍 Tier 3: Lệch model</div>
-                  <div style={{ color: "#e0f2fe", lineHeight: "1.3" }}>Một model phát hiện hoặc đồng thuận chưa đạt ngưỡng → <strong>Kiểm tra bằng chứng</strong>.</div>
+                  <div style={{ fontWeight: 700, color: "#7dd3fc", marginBottom: "4px" }}>Mức 3 · Chưa đủ đồng thuận</div>
+                  <div style={{ color: "#e0f2fe", lineHeight: "1.3" }}>Chỉ một mô hình phát hiện hoặc kết quả chưa đạt ngưỡng → <strong>Kiểm tra bằng chứng</strong>.</div>
                 </div>
               </div>
             </div>
@@ -2995,7 +3021,7 @@ export function ModelQCPage({
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   <Sparkles size={18} style={{ color: "#c084fc" }} />
                   <span style={{ fontWeight: 700, fontSize: "0.95rem", color: "#f3e8ff" }}>
-                    Phương án B: Bộ 3 Mô hình Đa Kiến Trúc (Triad Ensemble)
+                    Bắt đầu: cho 3 mô hình nhận diện ảnh
                   </span>
                   <span className="badge" style={{ background: "#7c3aed", color: "#fff", fontSize: "0.72rem", padding: "2px 8px" }}>
                     Khuyên dùng
@@ -3003,14 +3029,15 @@ export function ModelQCPage({
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   <select
+                    aria-label="Số ảnh cần tạo nhãn gợi ý"
                     value={triadLimit === null ? "all" : String(triadLimit)}
                     onChange={(e) => setTriadLimit(e.target.value === "all" ? null : parseInt(e.target.value, 10))}
                     style={{ padding: "0.3rem 0.6rem", fontSize: "0.8rem", background: "rgba(0,0,0,0.4)", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.2)" }}
                     disabled={runningTriad}
                   >
-                    <option value="all">Toàn bộ Dataset</option>
-                    <option value="10">Thử nghiệm 10 frames</option>
-                    <option value="30">Thử nghiệm 30 frames</option>
+                    <option value="all">Toàn bộ bộ dữ liệu</option>
+                    <option value="10">Thử trước với 10 ảnh</option>
+                    <option value="30">Thử trước với 30 ảnh</option>
                   </select>
                   <button
                     type="button"
@@ -3020,7 +3047,7 @@ export function ModelQCPage({
                     disabled={busy || runningTriad}
                   >
                     {runningTriad ? <LoaderCircle size={14} className="spin" /> : <Play size={14} />}
-                    <span>{runningTriad ? "Đang suy luận..." : "⚡ Chạy Inference & WBF Phương Án B"}</span>
+                    <span>{runningTriad ? "Đang nhận diện và hợp nhất…" : "Nhận diện và tạo nhãn gợi ý"}</span>
                   </button>
                 </div>
               </div>
@@ -3030,27 +3057,30 @@ export function ModelQCPage({
                   <div style={{ fontWeight: 600, color: "#e9d5ff", display: "flex", alignItems: "center", gap: "4px" }}>
                     ⚡ M1: {selectedYoloModel.toUpperCase()}
                   </div>
-                  <div style={{ color: "var(--muted)", fontSize: "0.75rem", marginTop: "2px" }}>CNN 1-Stage · YOLO26 · Trọng số 1.0</div>
+                  <div style={{ color: "var(--muted)", fontSize: "0.75rem", marginTop: "2px" }}>Nhận diện nhanh · Trọng số 1,0</div>
                 </div>
                 <div style={{ background: "rgba(0, 0, 0, 0.25)", borderRadius: "6px", padding: "0.55rem 0.75rem", border: "1px solid rgba(59, 130, 246, 0.2)" }}>
                   <div style={{ fontWeight: 600, color: "#93c5fd", display: "flex", alignItems: "center", gap: "4px" }}>
                     🎯 M2: Faster R-CNN
                   </div>
-                  <div style={{ color: "var(--muted)", fontSize: "0.75rem", marginTop: "2px" }}>CNN 2-Stage · RPN + RoIAlign · Trọng số 1.0</div>
+                  <div style={{ color: "var(--muted)", fontSize: "0.75rem", marginTop: "2px" }}>Nhận diện hai giai đoạn · Trọng số 1,0</div>
                 </div>
                 <div style={{ background: "rgba(0, 0, 0, 0.25)", borderRadius: "6px", padding: "0.55rem 0.75rem", border: "1px solid rgba(245, 158, 11, 0.2)" }}>
                   <div style={{ fontWeight: 600, color: "#fcd34d", display: "flex", alignItems: "center", gap: "4px" }}>
                     👁️ M3: RT-DETR-l
                   </div>
-                  <div style={{ color: "var(--muted)", fontSize: "0.75rem", marginTop: "2px" }}>Transformer · Global Attention · Trọng số 1.2</div>
+                  <div style={{ color: "var(--muted)", fontSize: "0.75rem", marginTop: "2px" }}>Nhận diện toàn ảnh · Trọng số 1,2</div>
                 </div>
               </div>
             </div>
 
             {/* Model Selection & Weights */}
+            <details className="advanced-options">
+              <summary>Tùy chọn nâng cao · Nguồn dự đoán, trọng số và ngưỡng hợp nhất</summary>
+              <p className="muted">Chỉ cần đổi khi bạn muốn hợp nhất lại dự đoán đã có. Trọng số càng lớn, mô hình càng có ảnh hưởng tới kết quả. Nút này không chạy nhận diện ảnh mới.</p>
             <div style={{ marginBottom: "1.25rem" }}>
               <div style={{ fontWeight: 600, fontSize: "0.95rem", marginBottom: "0.5rem" }}>
-                1. Chọn mô hình tham gia Ensemble & Thiết lập trọng số (Model Weights):
+                Nguồn dự đoán để hợp nhất · Chọn ít nhất 2 mô hình
               </div>
               {availableModelsData && availableModelsData.models.length > 0 ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
@@ -3088,21 +3118,21 @@ export function ModelQCPage({
                             <span style={{ fontWeight: 600 }}>{modelName}</span>
                             {modelName.toLowerCase().includes("yolo") && (
                               <span className="badge" style={{ background: "rgba(168, 85, 247, 0.2)", color: "#d8b4fe", fontSize: "0.7rem", border: "1px solid rgba(168, 85, 247, 0.4)" }}>
-                                CNN 1-Stage
+                                CNN một giai đoạn
                               </span>
                             )}
                             {(modelName.toLowerCase().includes("faster") || modelName.toLowerCase().includes("rcnn")) && (
                               <span className="badge" style={{ background: "rgba(59, 130, 246, 0.2)", color: "#93c5fd", fontSize: "0.7rem", border: "1px solid rgba(59, 130, 246, 0.4)" }}>
-                                CNN 2-Stage
+                                CNN hai giai đoạn
                               </span>
                             )}
                             {(modelName.toLowerCase().includes("detr") || modelName.toLowerCase().includes("transformer")) && (
                               <span className="badge" style={{ background: "rgba(245, 158, 11, 0.2)", color: "#fcd34d", fontSize: "0.7rem", border: "1px solid rgba(245, 158, 11, 0.4)" }}>
-                                Vision Transformer
+                                Kiến trúc Transformer
                               </span>
                             )}
                             <span className="badge" style={{ background: "rgba(255, 255, 255, 0.1)", fontSize: "0.75rem" }}>
-                              {count.toLocaleString()} predictions
+                              {count.toLocaleString()} dự đoán
                             </span>
                           </label>
 
@@ -3128,7 +3158,7 @@ export function ModelQCPage({
                 </div>
               ) : (
                 <div className="alert warning" style={{ fontSize: "0.85rem", padding: "0.75rem" }}>
-                  Chưa có nguồn dự đoán nào trong dataset. Hãy tải lên file predictions bên dưới!
+                  Chưa có dự đoán. Hãy bấm Nhận diện và tạo nhãn gợi ý ở trên, hoặc nhập tệp dự đoán bên dưới.
                 </div>
               )}
             </div>
@@ -3136,12 +3166,12 @@ export function ModelQCPage({
             {/* WBF Hyperparameters */}
             <div style={{ marginBottom: "1.25rem" }}>
               <div style={{ fontWeight: 600, fontSize: "0.95rem", marginBottom: "0.5rem" }}>
-                2. Tham số thuật toán Weighted Box Fusion (WBF):
+                Tùy chỉnh cách hợp nhất khung bao
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
                 <div className="form-group" style={{ margin: 0 }}>
                   <label style={{ fontSize: "0.8rem" }}>
-                    <span>IoU Clustered Threshold:</span>
+                    <span>Mức trùng khớp vị trí (IoU):</span>
                     <input
                       type="number"
                       min="0.1"
@@ -3150,13 +3180,13 @@ export function ModelQCPage({
                       value={ensembleIouThresh}
                       onChange={(e) => setEnsembleIouThresh(parseFloat(e.target.value) || 0.55)}
                     />
-                    <small className="muted">Ngưỡng IoU coi 2 box là 1 vật thể (Mặc định 0.55)</small>
+                    <small className="muted">Hai khung trùng nhau đủ mức này sẽ được xem là cùng vật thể. Mặc định: 0,55.</small>
                   </label>
                 </div>
 
                 <div className="form-group" style={{ margin: 0 }}>
                   <label style={{ fontSize: "0.8rem" }}>
-                    <span>Min Fused Confidence:</span>
+                    <span>Độ tin cậy tối thiểu của kết quả:</span>
                     <input
                       type="number"
                       min="0.05"
@@ -3165,13 +3195,13 @@ export function ModelQCPage({
                       value={ensembleConfThresh}
                       onChange={(e) => setEnsembleConfThresh(parseFloat(e.target.value) || 0.30)}
                     />
-                    <small className="muted">Độ tin cậy tối thiểu để giữ box sau WBF (Mặc định 0.30)</small>
+                    <small className="muted">Bỏ kết quả có độ tin cậy thấp hơn mức này. Mặc định: 0,30.</small>
                   </label>
                 </div>
 
                 <div className="form-group" style={{ margin: 0 }}>
                   <label style={{ fontSize: "0.8rem" }}>
-                    <span>Tier 1 Consensus Conf:</span>
+                    <span>Ngưỡng đồng thuận cao (mức 1):</span>
                     <input
                       type="number"
                       min="0.5"
@@ -3180,7 +3210,7 @@ export function ModelQCPage({
                       value={ensembleHighConsensusConf}
                       onChange={(e) => setEnsembleHighConsensusConf(parseFloat(e.target.value) || 0.85)}
                     />
-                    <small className="muted">Ngưỡng confidence cho Tier 1; không phải xác suất nhãn đúng (mặc định 0.85)</small>
+                    <small className="muted">Ngưỡng để xếp mức đồng thuận cao. Đây không phải xác suất nhãn đúng. Mặc định: 0,85.</small>
                   </label>
                 </div>
               </div>
@@ -3195,10 +3225,10 @@ export function ModelQCPage({
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label style={{ fontSize: "0.8rem" }}>
-                      <span>Tên model (Model Identifier):</span>
+                      <span>Tên định danh mô hình:</span>
                       <input
                         type="text"
-                        placeholder="e.g. rt-detr-l hoặc yolov9c"
+                        placeholder="Ví dụ: mo_hinh_giao_thong_1"
                         value={newModelName}
                         onChange={(e) => setNewModelName(e.target.value)}
                         required
@@ -3218,9 +3248,15 @@ export function ModelQCPage({
                   </div>
                 </div>
                 <button type="submit" className="secondary" style={{ alignSelf: "flex-end" }} disabled={busy || !newModelFile}>
-                  <Upload size={14} /> Nạp & Hợp nhất vào Ensemble
+                  <Upload size={14} /> Nhập dự đoán và hợp nhất
                 </button>
               </form>
+            </details>
+            </details>
+
+            <details className="advanced-options">
+              <summary>Thử nghiệm nâng cao · So sánh nhiều lượt nhận diện có nhiễu</summary>
+              <WBFExperimentPanel key={dataset.id} datasetId={dataset.id} yoloModel={selectedYoloModel} />
             </details>
 
             {/* Last Execution Results */}
@@ -3228,7 +3264,7 @@ export function ModelQCPage({
               <div style={{ background: "rgba(168, 85, 247, 0.1)", border: "1px solid rgba(168, 85, 247, 0.3)", borderRadius: "8px", padding: "1rem", marginBottom: "1.25rem" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
                   <span style={{ fontWeight: 700, color: "#d8b4fe" }}>
-                    Kết quả hợp nhất gần nhất ({ensembleResult.total_fused_predictions?.toLocaleString()} boxes)
+                    Kết quả hợp nhất gần nhất ({ensembleResult.total_fused_predictions?.toLocaleString()} khung bao)
                   </span>
                   <button
                     className="primary"
@@ -3239,7 +3275,7 @@ export function ModelQCPage({
                       setShowCVATPushModal(true);
                     }}
                   >
-                    <Send size={14} /> Đẩy Pre-label sang CVAT
+                    <Send size={14} /> Gửi nhãn gợi ý sang CVAT
                   </button>
                 </div>
 
@@ -3249,7 +3285,7 @@ export function ModelQCPage({
                       {ensembleResult.tier_breakdown?.tier_1_high_consensus || 0}
                     </div>
                     <div style={{ fontSize: "0.75rem", color: "#dcfce7" }}>
-                      🎯 Tier 1 (Đồng thuận cao) ·{" "}
+                      Mức 1 · Đồng thuận cao ·{" "}
                       {ensembleResult.total_fused_predictions
                         ? Math.round(((ensembleResult.tier_breakdown?.tier_1_high_consensus || 0) / ensembleResult.total_fused_predictions) * 100)
                         : 0}
@@ -3260,13 +3296,13 @@ export function ModelQCPage({
                     <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#fcd34d" }}>
                       {ensembleResult.tier_breakdown?.tier_2_class_disagreement || 0}
                     </div>
-                    <div style={{ fontSize: "0.75rem", color: "#fef3c7" }}>⚠️ Tier 2 (Bất đồng nhãn)</div>
+                    <div style={{ fontSize: "0.75rem", color: "#fef3c7" }}>Mức 2 · Khác loại vật thể</div>
                   </div>
                   <div style={{ background: "rgba(56, 189, 248, 0.15)", borderRadius: "8px", padding: "0.6rem" }}>
                     <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#7dd3fc" }}>
                       {ensembleResult.tier_breakdown?.tier_3_model_divergence || 0}
                     </div>
-                    <div style={{ fontSize: "0.75rem", color: "#e0f2fe" }}>🔍 Tier 3 (Chỉ 1 model)</div>
+                    <div style={{ fontSize: "0.75rem", color: "#e0f2fe" }}>Mức 3 · Chưa đủ đồng thuận</div>
                   </div>
                 </div>
               </div>
@@ -3280,10 +3316,11 @@ export function ModelQCPage({
                 type="button"
                 className="primary"
                 style={{ background: "#9333ea", borderColor: "#a855f7" }}
-                disabled={busy || selectedEnsembleModels.length === 0}
+                disabled={busy || selectedEnsembleModels.length < 2}
+                title={selectedEnsembleModels.length < 2 ? "Cần ít nhất 2 nguồn dự đoán. Dùng Nhận diện và tạo nhãn gợi ý nếu chưa có dự đoán." : "Chỉ hợp nhất lại các dự đoán đã lưu, không chạy nhận diện ảnh mới."}
                 onClick={handleRunEnsemble}
               >
-                <Sparkles size={16} /> Chạy WBF Ensemble
+                <Sparkles size={16} /> Hợp nhất dự đoán đã có
               </button>
             </div>
           </section>

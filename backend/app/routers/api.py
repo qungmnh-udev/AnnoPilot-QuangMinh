@@ -199,9 +199,9 @@ def trigger_qc_audit(id: int, config: Optional[QCConfig] = None, db: Session = D
         raise HTTPException(500, f"QC Audit failed: {str(e)}")
 
 @router.get('/datasets/{id}/qc/report')
-def get_qc_report(id: int, db: Session = Depends(get_db)):
+def get_qc_report(id: int, compact: bool = False, db: Session = Depends(get_db)):
     require(db, Dataset, id)
-    report = get_dataset_qc_report(db, id)
+    report = get_dataset_qc_report(db, id, compact=compact)
     return report
 
 @router.post('/datasets/{id}/qc/predictions')
@@ -406,20 +406,30 @@ def run_triad_ensemble_endpoint(
         raise HTTPException(500, f"Triad inference execution failed: {str(e)}")
 
 @router.get('/datasets/{id}/qc/queue')
-def get_qc_queue(id: int, include_clean: bool = False, db: Session = Depends(get_db)):
+def get_qc_queue(id: int, include_clean: bool = False, compact: bool = False, db: Session = Depends(get_db)):
     dataset = require(db, Dataset, id)
+    loaders = (
+        [selectinload(Sample.annotations).load_only(Annotation.id),
+         selectinload(Sample.predictions).load_only(Prediction.id, Prediction.source_model),
+         selectinload(Sample.qc_issues).load_only(QCIssue.id, QCIssue.issue_type, QCIssue.status, QCIssue.qc_score)]
+        if compact else
+        [selectinload(Sample.annotations), selectinload(Sample.predictions), selectinload(Sample.qc_issues)]
+    )
     samples_db = db.scalars(
         select(Sample)
         .where(Sample.dataset_id == id)
-        .options(
-            selectinload(Sample.annotations),
-            selectinload(Sample.predictions),
-            selectinload(Sample.qc_issues)
-        )
+        .options(*loaders)
     ).all()
     samples = []
     for s in samples_db:
-        d = sample_dict(s, details=True, dataset=dataset)
+        d = sample_dict(s, details=not compact, dataset=dataset)
+        if compact:
+            d['qc_issue_counts'] = {
+                'missing': sum(i.issue_type == 'MISSING_OBJECT' for i in s.qc_issues),
+                'wrong': sum(i.issue_type == 'WRONG_CLASS' for i in s.qc_issues),
+                'resolved': sum(i.status != 'PENDING' for i in s.qc_issues),
+                'total': len(s.qc_issues),
+            }
         if include_clean or d['qc_issue_count'] > 0:
             samples.append(d)
     # Sort prioritized queue by qc_score descending

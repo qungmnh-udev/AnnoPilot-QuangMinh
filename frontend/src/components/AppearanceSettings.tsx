@@ -14,20 +14,20 @@ export function AppearanceSettings() {
     >
       <div className="card-title">
         <div>
-          <h2 id="appearance-heading">Appearance</h2>
-          <p>Changes apply immediately and are saved in this browser.</p>
+          <h2 id="appearance-heading">Giao diện</h2>
+          <p>Thay đổi có hiệu lực ngay và được lưu trên trình duyệt này.</p>
         </div>
         <Type size={22} />
       </div>
       <div className="appearance-grid">
         <fieldset>
-          <legend>Theme</legend>
+          <legend>Chế độ màu</legend>
           <div className="preference-options">
             {(
               [
-                ["light", "Light", Sun],
-                ["dark", "Dark", Moon],
-                ["system", "System", Monitor],
+                ["light", "Sáng", Sun],
+                ["dark", "Tối", Moon],
+                ["system", "Theo thiết bị", Monitor],
               ] as const
             ).map(([value, label, Icon]) => (
               <label
@@ -50,12 +50,11 @@ export function AppearanceSettings() {
             ))}
           </div>
           <p className="muted">
-            System follows your device’s light or dark preference, including
-            changes while the app is open.
+            Chế độ Theo thiết bị tự đổi sáng / tối theo cài đặt của máy.
           </p>
         </fieldset>
         <fieldset>
-          <legend>Interface Font Size</legend>
+          <legend>Cỡ chữ giao diện</legend>
           <div className="preference-options">
             {(["small", "medium", "large"] as const).map((value) => (
               <label
@@ -71,14 +70,13 @@ export function AppearanceSettings() {
                   checked={fontSize === value}
                   onChange={() => setFontSize(value as FontSize)}
                 />
-                <span>{value[0].toUpperCase() + value.slice(1)}</span>
+                <span>{{ small: 'Nhỏ', medium: 'Vừa', large: 'Lớn' }[value]}</span>
                 {fontSize === value && <Check size={16} aria-hidden="true" />}
               </label>
             ))}
           </div>
           <p className="muted">
-            Scales typography throughout the interface. Tables stay scrollable
-            at larger sizes.
+            Đổi cỡ chữ trên toàn trang. Có thể cuộn bảng khi nội dung rộng hơn màn hình.
           </p>
         </fieldset>
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, json } from '../api';
+import { displayLabel } from '../uiText';
 import type { YOLOVariant } from '../types';
 
 type Metric = { precision: number | null; recall: number | null; f1: number | null };
@@ -10,12 +11,12 @@ type Experiment = { id: string; status: string; processed_frames: number; total_
   current_frame?: string; arm?: string; error?: string; summary: Record<string, Summary>;
   config?: { repeats: number; seed: number; baseline_model: string }; quality_measured?: boolean };
 const armNames: Record<string, string> = {
-  single_model_once: '1 model · 1 lượt gốc',
-  single_model_repeated_clean: '1 model · lặp ảnh gốc',
-  single_model_repeated_perturbed: '1 model · gốc + nhiễu',
-  multi_model_once: 'Nhiều model · 1 lượt gốc',
-  multi_model_repeated_clean: 'Nhiều model · lặp ảnh gốc',
-  multi_model_repeated_perturbed: 'Nhiều model · gốc + nhiễu',
+  single_model_once: "1 mô hình · 1 lượt gốc",
+  single_model_repeated_clean: "1 mô hình · lặp ảnh gốc",
+  single_model_repeated_perturbed: "1 mô hình · gốc + nhiễu",
+  multi_model_once: "Nhiều mô hình · 1 lượt gốc",
+  multi_model_repeated_clean: "Nhiều mô hình · lặp ảnh gốc",
+  multi_model_repeated_perturbed: "Nhiều mô hình · gốc + nhiễu",
 };
 const pct = (v: number | null | undefined) => v == null ? '—' : `${(v * 100).toFixed(1)}%`;
 
@@ -67,37 +68,37 @@ export function WBFExperimentPanel({ datasetId, yoloModel }: { datasetId: number
 
   return <section className="wbf-experiment-panel" aria-labelledby="wbf-experiment-title">
     <h3 id="wbf-experiment-title">Thử nghiệm WBF thực tế: một lượt và nhiều lượt có nhiễu</h3>
-    <p>So sánh 6 cấu hình: một model hoặc nhiều model, mỗi cấu hình chạy một lượt gốc, lặp ảnh gốc hoặc lặp có nhiễu. Mặc định 4 lượt: gốc, Gaussian, tăng độ sáng và làm mờ nhẹ.</p>
-    <p className="muted">Các lượt của cùng model được gộp trước khi WBF giữa các model. Kết quả thử nghiệm lưu riêng, không sửa nhãn hoặc prediction đang review. Đóng cửa sổ vẫn tiếp tục chạy; khởi động lại backend sẽ ngắt thử nghiệm.</p>
+    <p>So sánh 6 cấu hình: một hoặc nhiều mô hình, mỗi cấu hình nhận diện một lượt, lặp ảnh gốc hoặc lặp ảnh có nhiễu. Mặc định dùng 4 lượt: ảnh gốc, thêm nhiễu hạt, tăng độ sáng và làm mờ nhẹ.</p>
+    <p className="muted">Các lượt của cùng mô hình được gộp trước, sau đó mới hợp nhất giữa các mô hình. Kết quả thử nghiệm lưu riêng, không sửa nhãn hoặc dự đoán đang kiểm tra. Đóng cửa sổ vẫn tiếp tục chạy; khởi động lại máy chủ sẽ ngắt thử nghiệm.</p>
     {error && <p role="alert" className="text-warning">{error}</p>}
     <form onSubmit={start}>
       <fieldset disabled={busy || running}>
         <div className="wbf-experiment-controls">
           <label>Số ảnh (tối đa 30)<input type="number" min="1" max="30" required value={limit} onChange={e => setLimit(Number(e.target.value))} /></label>
           <label>Số lượt gồm ảnh gốc<input type="number" min="2" max="8" required value={repeats} onChange={e => setRepeats(Number(e.target.value))} /></label>
-          <label>Seed<input type="number" min="0" max="4294967295" required value={seed} onChange={e => setSeed(Number(e.target.value))} /></label>
-          <label>Gaussian sigma (pixel 0–255)<input type="number" min="0" max="30" step="0.5" required value={sigma} onChange={e => setSigma(Number(e.target.value))} /></label>
+          <label>Mã lặp lại thử nghiệm (seed)<input type="number" min="0" max="4294967295" required value={seed} onChange={e => setSeed(Number(e.target.value))} /></label>
+          <label>Mức nhiễu hạt (thang điểm ảnh 0–255)<input type="number" min="0" max="30" step="0.5" required value={sigma} onChange={e => setSigma(Number(e.target.value))} /></label>
           <label>Độ sáng tăng (0,15 = 15%)<input type="number" min="0" max="0.5" step="0.01" required value={brightness} onChange={e => setBrightness(Number(e.target.value))} /></label>
           <label>Bán kính làm mờ<input type="number" min="0" max="3" step="0.1" required value={blur} onChange={e => setBlur(Number(e.target.value))} /></label>
         </div>
-        <label>Golden để đo chất lượng<select value={benchmark} onChange={e => setBenchmark(e.target.value)}>
-          <option value="">Chưa có Golden — chỉ đo tốc độ và mức nhất quán</option>
+        <label>Bộ nhãn chuẩn để đo chất lượng<select value={benchmark} onChange={e => setBenchmark(e.target.value)}>
+          <option value="">Chưa có bộ chuẩn · Chỉ đo tốc độ và mức nhất quán</option>
           {benchmarks.map(b => <option key={b.id} value={b.id}>#{b.id} · {b.frame_count} ảnh · {b.verified_by}</option>)}
         </select></label>
-        <p className="muted">Cần 4 lượt để có đủ ba loại nhiễu; lượt 5 trở đi lặp chu kỳ. Confidence cố định 0,35; fusion IoU 0,55; các model có weight bằng nhau.</p>
-        <button type="submit" className="primary">{busy || running ? 'Đang chạy model thật…' : 'Chạy so sánh inference thật'}</button>
+        <p className="muted">Cần 4 lượt để có đủ ba loại nhiễu; từ lượt 5 lặp lại chu kỳ. Độ tin cậy tối thiểu: 0,35; mức trùng khớp để hợp nhất: 0,55; các mô hình có trọng số bằng nhau.</p>
+        <button type="submit" className="primary">{busy || running ? "Đang chạy nhận diện…" : "Bắt đầu thử nghiệm so sánh"}</button>
       </fieldset>
     </form>
     {!!runs.length && <label>Lịch sử thử nghiệm<select value={run?.id || ''} onChange={e => setSelected(e.target.value)}>
-      {runs.map(item => <option key={item.id} value={item.id}>{item.id.slice(0, 8)} · {item.status} · {item.config?.baseline_model || yoloModel}</option>)}
+      {runs.map(item => <option key={item.id} value={item.id}>{item.id.slice(0, 8)} · {displayLabel(item.status)} · {item.config?.baseline_model || yoloModel}</option>)}
     </select></label>}
     {run && <>
-      <p role="status"><strong>{run.status}</strong> · {run.processed_frames}/{run.total_frames} ảnh
-        {run.config && ` · ${run.config.repeats} lượt · seed ${run.config.seed}`}
+      <p role="status"><strong>{displayLabel(run.status)}</strong> · {run.processed_frames}/{run.total_frames} ảnh
+        {run.config && ` · ${run.config.repeats} lượt · mã lặp lại ${run.config.seed}`}
         {run.current_frame && ` · ${run.current_frame} · ${armNames[run.arm || ''] || ''}`}</p>
       {run.error && <p role="alert" className="text-warning">{run.error}</p>}
-      {!run.quality_measured && <p className="text-warning">Chưa dùng Golden độc lập: chưa thể kết luận WBF hoặc thêm nhiễu chính xác hơn. F1 nhất quán với baseline không phải F1 chất lượng.</p>}
-      <div className="table-wrap"><table><thead><tr><th>Cấu hình</th><th>Ảnh / calls</th><th>Boxes</th><th>Inference / fusion / QC (s)</th><th>Detection P / R / F1</th><th>QC recall thiếu / sai class</th><th>F1 nhất quán với baseline</th></tr></thead>
+      {!run.quality_measured && <p className="text-warning">Chưa có bộ nhãn chuẩn độc lập để kết luận cách nào chính xác hơn. Chỉ số nhất quán cho biết các lượt dự đoán giống nhau đến đâu, không bảo đảm nhãn đúng.</p>}
+      <div className="table-wrap"><table><thead><tr><th>Cấu hình</th><th>Ảnh / lượt nhận diện</th><th>Khung bao</th><th>Nhận diện / Hợp nhất / Đối chiếu (giây)</th><th>Nhận diện: chính xác / bao phủ / F1</th><th>Tỷ lệ tìm lỗi thiếu / sai loại</th><th>F1 nhất quán với một lượt gốc</th></tr></thead>
         <tbody>{Object.entries(run.summary || {}).map(([arm, s]) => <tr key={arm}>
           <td>{armNames[arm] || arm}</td><td>{s.frame_count} / {s.detector_calls}</td><td>{s.detections}</td>
           <td>{s.inference_seconds.toFixed(2)} / {s.fusion_seconds.toFixed(3)} / {s.qc_seconds.toFixed(3)}</td>
@@ -105,7 +106,7 @@ export function WBFExperimentPanel({ datasetId, yoloModel }: { datasetId: number
           <td>{pct(s.qc_metrics?.MISSING_OBJECT?.recall)} / {pct(s.qc_metrics?.WRONG_CLASS?.recall)}</td>
           <td>{pct(s.agreement_with_single_once.f1)}</td>
         </tr>)}</tbody></table></div>
-      <a className="button secondary" href={`/api${prefix}/${run.id}/report`}>Tải prediction từng lượt và báo cáo JSON</a>
+      <a className="button secondary" href={`/api${prefix}/${run.id}/report`}>Tải dự đoán từng lượt và báo cáo JSON</a>
     </>}
   </section>;
 }

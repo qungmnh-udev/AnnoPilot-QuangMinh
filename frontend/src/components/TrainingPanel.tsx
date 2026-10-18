@@ -93,28 +93,28 @@ export function TrainingPanel({ datasetId, datasetName, onCheckpointChanged }: {
     try {
       await api(`${prefix}/checkpoint`, json('POST', { model_name: modelName, checkpoint_id: checkpointId }));
       await refresh(); await callback.current(modelName);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Không đổi được model QC.'); }
+    } catch (e) { setError(e instanceof Error ? e.message : 'Không đổi được mô hình kiểm tra nhãn.'); }
     finally { setBusy(false); }
   }
 
   return <details className="card training-panel" open={open} onToggle={e => setOpen(e.currentTarget.open)}>
-    <summary><GraduationCap size={20} /><strong>Huấn luyện model của bạn</strong><span className="muted">Học từ nhãn đã kiểm tra</span></summary>
+    <summary><GraduationCap size={20} /><strong>Huấn luyện mô hình</strong><span className="muted">Học từ nhãn đã kiểm tra</span></summary>
     <div className="training-content">
-      <p>Dùng ảnh và nhãn trong <strong>{datasetName}</strong> để dạy model nhận diện dữ liệu của bạn. Khi hoàn tất, QC và WBF tự dùng checkpoint mới cho dataset này ở lần chạy tiếp theo.</p>
+      <p>Dùng ảnh và nhãn trong <strong>{datasetName}</strong> để mô hình học cách nhận diện dữ liệu của bạn. Khi hoàn tất, bản mô hình vừa học được tự chọn cho lần kiểm tra nhãn hoặc tạo nhãn gợi ý tiếp theo trên bộ dữ liệu này.</p>
       <div className="training-overview">
         <div><span className="training-step">1</span><div><strong>Chuẩn bị nhãn</strong><p>Sửa và đồng bộ từ CVAT trước khi bắt đầu.</p></div></div>
-        <div><span className="training-step">2</span><div><strong>Cho model học</strong><p>Ứng dụng tự chia ảnh học và ảnh kiểm tra.</p></div></div>
-        <div><span className="training-step">3</span><div><strong>Dùng trong QC</strong><p>Chạy lại QC để có dự đoán từ model mới.</p></div></div>
+        <div><span className="training-step">2</span><div><strong>Cho mô hình học</strong><p>Ứng dụng tự chia ảnh học và ảnh kiểm tra.</p></div></div>
+        <div><span className="training-step">3</span><div><strong>Kiểm tra bằng mô hình mới</strong><p>Chạy lại kiểm tra nhãn để nhận dự đoán mới.</p></div></div>
       </div>
       <div className="training-readiness" role="status">
         <Cpu size={18} /><span>{hardware ? hardware.gpu_available ? `${hardware.gpu_name} · ${hardware.gpu_memory_gb} GB · GPU sẵn sàng` : hardware.message : 'Đang kiểm tra thiết bị…'}</span>
       </div>
-      {preview && <p className="muted">{preview.error || `${preview.eligible} ảnh có thể dùng · ${preview.golden} ảnh Golden được giữ riêng · ${preview.empty} ảnh chưa có nhãn được bỏ qua${preview.missing_media ? ` · ${preview.missing_media} ảnh thiếu media` : ''}${preview.duplicates ? ` · ${preview.duplicates} ảnh trùng được gộp` : ''}. Cần ít nhất 4 ảnh khác nhau.`}</p>}
+      {preview && <p className="muted">{preview.error || `${preview.eligible} ảnh có thể dùng · ${preview.golden} ảnh thuộc bộ chuẩn được giữ riêng · ${preview.empty} ảnh chưa có nhãn được bỏ qua${preview.missing_media ? ` · ${preview.missing_media} ảnh thiếu dữ liệu gốc` : ''}${preview.duplicates ? ` · ${preview.duplicates} ảnh trùng được gộp` : ''}. Cần ít nhất 4 ảnh khác nhau.`}</p>}
       {error && <p role="alert" className="text-warning">{error}</p>}
       {!running && <form onSubmit={start}>
         <fieldset disabled={busy}>
           <div className="training-fields">
-            <label>Model<select value={model} onChange={e => setModel(e.target.value as ModelName)}>{Object.entries(names).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+            <label>Mô hình muốn huấn luyện<select value={model} onChange={e => setModel(e.target.value as ModelName)}>{Object.entries(names).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
             <label>Mức huấn luyện<select value={[10, 30, 60].includes(epochs) ? epochs : 'custom'} onChange={e => { if (e.target.value !== 'custom') setEpochs(Number(e.target.value)); }}>
               <option value="10">Thử nhanh · 10 vòng</option><option value="30">Thông thường · 30 vòng</option><option value="60">Học lâu hơn · 60 vòng</option>{![10, 30, 60].includes(epochs) && <option value="custom">Tùy chỉnh · {epochs} vòng</option>}
             </select></label>
@@ -132,19 +132,19 @@ export function TrainingPanel({ datasetId, datasetName, onCheckpointChanged }: {
       </form>}
       {latest && <div className={`training-progress ${latest.status === 'COMPLETED' ? 'is-complete' : ''}`} aria-live="polite">
         <div className="training-progress-title">{active.has(latest.status) ? <LoaderCircle className="spin" size={18} /> : latest.status === 'COMPLETED' ? <CheckCircle2 size={18} /> : <Cpu size={18} />}<strong>{statuses[latest.status] || latest.status} · {names[latest.model_name]}</strong></div>
-        <p>{latest.message || (latest.status === 'INTERRUPTED' ? 'Tác vụ đã gián đoạn. Bạn có thể bắt đầu lượt mới; model cũ vẫn được giữ.' : 'Đang chờ cập nhật…')}</p>
-        {latest.status === 'COMPLETED' && <p>{latest.model_name.startsWith('yolo26') ? 'Bước tiếp theo: bấm Chạy Queue QC để kiểm tra nhãn bằng model vừa học.' : 'Bước tiếp theo: mở Multi-Model WBF và bấm Chạy Inference & WBF Phương Án B để dùng model vừa học.'}</p>}
+        <p>{latest.message || (latest.status === 'INTERRUPTED' ? 'Tác vụ đã gián đoạn. Bạn có thể bắt đầu lượt mới; mô hình cũ vẫn được giữ.' : 'Đang chờ cập nhật…')}</p>
+        {latest.status === 'COMPLETED' && <p>{latest.model_name.startsWith('yolo26') ? "Bước tiếp theo: bấm Kiểm tra nhãn bằng AI để dùng mô hình vừa học." : "Bước tiếp theo: mở Tạo nhãn gợi ý (WBF), rồi bấm Nhận diện và tạo nhãn gợi ý để dùng mô hình vừa học."}</p>}
         <progress max={latest.epochs || latest.config.epochs} value={latest.epoch || 0} aria-label="Tiến độ huấn luyện" />
         <div className="training-progress-meta"><span>{latest.epoch || 0}/{latest.epochs || latest.config.epochs} vòng</span><span>{latest.config.train_count} ảnh học · {latest.config.validation_count} ảnh kiểm tra</span><span>{latest.config.resolved_device.startsWith('cuda') ? 'GPU' : 'CPU'}</span></div>
         {latest.error && <p role="alert" className="text-warning">{latest.error}</p>}
         {running && <button type="button" className="secondary" disabled={busy || cancelRequested} onClick={() => void cancel()}><Square size={14} />{cancelRequested ? 'Đang chờ dừng ở bước an toàn…' : 'Dừng huấn luyện'}</button>}
         <details><summary>Chi tiết kỹ thuật</summary><pre>{JSON.stringify(latest.metrics || {}, null, 2)}</pre><a href={`/api${prefix}/${latest.id}/log`}>Tải nhật ký huấn luyện</a></details>
       </div>}
-      {!!history.checkpoints.length && <details className="training-options"><summary>Model đang dùng và các phiên bản trước</summary><ul className="training-checkpoints">{history.checkpoints.map(c => <li key={c.id}>
-        <span><strong>{names[c.model_name]}</strong> · #{c.id} · {new Date(c.created_at).toLocaleString('vi-VN')}{c.active && <span className="badge">Đang dùng trong QC</span>}</span>
-        <button className="secondary" type="button" disabled={busy || !!running} onClick={() => void useCheckpoint(c.active ? null : c.id, c.model_name)}>{c.active ? 'Dùng lại model gốc' : 'Dùng phiên bản này'}</button>
+      {!!history.checkpoints.length && <details className="training-options"><summary>Mô hình đang dùng và các phiên bản trước</summary><ul className="training-checkpoints">{history.checkpoints.map(c => <li key={c.id}>
+        <span><strong>{names[c.model_name]}</strong> · #{c.id} · {new Date(c.created_at).toLocaleString('vi-VN')}{c.active && <span className="badge">Đang được chọn để kiểm tra nhãn</span>}</span>
+        <button className="secondary" type="button" disabled={busy || !!running} onClick={() => void useCheckpoint(c.active ? null : c.id, c.model_name)}>{c.active ? "Dùng lại mô hình gốc" : 'Dùng phiên bản này'}</button>
       </li>)}</ul></details>}
-      <p className="muted">Có thể đóng mục này khi đang học. Kết quả và tiến độ được lưu; tác vụ chạy riêng với backend. Golden không dùng để huấn luyện. Chạy QC trên tập độc lập để đo chất lượng model mới.</p>
+      <p className="muted">Bạn có thể đóng mục này khi đang huấn luyện; máy chủ vẫn tiếp tục chạy và lưu tiến độ. Bộ nhãn chuẩn Golden được giữ riêng để đánh giá, không dùng để học.</p>
     </div>
   </details>;
 }

@@ -1,9 +1,9 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { AlertTriangle, Database, LoaderCircle, Upload, X } from "lucide-react";
+import { displayLabel } from "../uiText";
 
 export type DatasetStatus = "loading" | "ready" | "error";
-export const featureLabel = (feature: string) =>
-  feature === "Workload" ? "Workload Balancer" : feature;
+export const featureLabel = displayLabel;
 
 export function DatasetRequiredState({
   feature,
@@ -17,18 +17,18 @@ export function DatasetRequiredState({
   return (
     <section className="card dataset-required-state">
       <Database size={32} />
-      <h1>Dataset required</h1>
-      <p>Please upload a dataset before using {featureLabel(feature)}.</p>
+      <h1>Cần thêm bộ dữ liệu</h1>
+      <p>Thêm bộ dữ liệu để sử dụng mục {featureLabel(feature)}.</p>
       <p className="muted">
-        AnnoPilot needs annotation data before this feature can be used.
+        Hãy thêm ảnh và nhãn của bạn để bắt đầu. Bạn có thể tạo nhãn gợi ý nếu ảnh chưa có nhãn.
       </p>
       <div className="guard-actions">
         <button className="secondary" onClick={onCancel}>
-          Stay Here
+          Ở lại trang này
         </button>
         <button onClick={onUpload}>
           <Upload size={16} />
-          Upload Dataset
+          Thêm bộ dữ liệu
         </button>
       </div>
     </section>
@@ -56,19 +56,19 @@ export function DatasetRequiredRoute({
     return (
       <section className="card guard-status" role="status">
         <LoaderCircle className="spin" size={24} />
-        <h2>Checking dataset status…</h2>
-        <p>Please wait while AnnoPilot loads your workspace.</p>
+        <h2>Đang kiểm tra bộ dữ liệu…</h2>
+        <p>Vui lòng chờ ứng dụng tải dữ liệu của bạn.</p>
       </section>
     );
   if (status === "error")
     return (
       <section className="card guard-status" role="alert">
         <AlertTriangle size={24} />
-        <h2>Unable to check dataset status.</h2>
+        <h2>Không kiểm tra được trạng thái bộ dữ liệu.</h2>
         <p>
-          Your data may still exist. Check the backend connection and retry.
+          Hãy kiểm tra kết nối máy chủ rồi thử lại. Dữ liệu đã lưu có thể vẫn còn trên máy chủ.
         </p>
-        <button onClick={onRetry}>Retry</button>
+        <button onClick={onRetry}>Thử lại</button>
       </section>
     );
   if (!hasDataset)
@@ -137,10 +137,10 @@ export function DatasetRequiredDialog({
         <div className="modal-heading">
           <div className="guard-heading">
             <Database size={24} />
-            <h2 id="dataset-required-title">Dataset required</h2>
+            <h2 id="dataset-required-title">Cần thêm bộ dữ liệu</h2>
           </div>
           <button
-            aria-label="Close dataset required dialog"
+            aria-label="Đóng thông báo cần bộ dữ liệu"
             className="icon-button"
             onClick={onCancel}
           >
@@ -148,18 +148,18 @@ export function DatasetRequiredDialog({
           </button>
         </div>
         <p id="dataset-required-description">
-          Please upload a dataset before using {featureLabel(feature)}.
+          Thêm bộ dữ liệu để sử dụng mục {featureLabel(feature)}.
         </p>
         <p className="muted">
-          AnnoPilot needs annotation data before this feature can be used.
+          Hãy thêm ảnh và nhãn của bạn để bắt đầu. Bạn có thể tạo nhãn gợi ý nếu ảnh chưa có nhãn.
         </p>
         <div className="guard-actions">
           <button className="secondary" data-cancel onClick={onCancel}>
-            Stay Here
+            Ở lại trang này
           </button>
           <button onClick={onUpload}>
             <Upload size={16} />
-            Upload Dataset
+            Thêm bộ dữ liệu
           </button>
         </div>
       </section>

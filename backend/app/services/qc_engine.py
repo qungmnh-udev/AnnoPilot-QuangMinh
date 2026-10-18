@@ -622,13 +622,46 @@ def run_dataset_qc_audit(db: Session, dataset_id: int, config: Optional[QCConfig
 
     return report
 
-def get_dataset_qc_report(db: Session, dataset_id: int, force_refresh: bool = False) -> Dict[str, Any]:
+def get_dataset_qc_summary(db: Session, dataset_id: int) -> Dict[str, Any]:
+    """Read dashboard counters without loading per-issue JSON evidence or running an audit."""
+    samples = db.scalars(select(Sample).where(Sample.dataset_id == dataset_id).options(
+        selectinload(Sample.predictions).load_only(Prediction.id, Prediction.source_model),
+        selectinload(Sample.qc_issues).load_only(QCIssue.id, QCIssue.status, QCIssue.issue_type, QCIssue.qc_score),
+    )).all()
+    severity = {'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'CLEAN': 0}
+    missing = wrong = flagged = clean = 0
+    for sample in samples:
+        pending = [issue for issue in sample.qc_issues if issue.status == 'PENDING']
+        _, level = compute_sample_qc_score(pending)
+        severity[level] += 1
+        flagged += bool(pending)
+        clean += processing_state(sample) == 'PROCESSED' and not pending
+        missing += sum(issue.issue_type == 'MISSING_OBJECT' for issue in pending)
+        wrong += sum(issue.issue_type == 'WRONG_CLASS' for issue in pending)
+    return {
+        'dataset_id': dataset_id,
+        **coverage_summary(samples),
+        'total_samples': len(samples),
+        'flagged_samples_count': flagged,
+        'clean_samples_count': clean,
+        'workload_reduction_percentage': round(clean / len(samples) * 100, 2) if samples else 0.0,
+        'total_missing_candidates': missing,
+        'total_wrong_class_candidates': wrong,
+        'total_issues': missing + wrong,
+        'severity_breakdown': severity,
+        'top_suspicious_samples': [],
+    }
+
+
+def get_dataset_qc_report(db: Session, dataset_id: int, force_refresh: bool = False, compact: bool = False) -> Dict[str, Any]:
     """
     Lightning-fast retrieval of the dataset QC report.
     Checks memory cache first (< 1ms). If not cached, queries existing database records
     in a single eager-loaded bulk query (~100-150ms) instead of re-running the full detector/IoU audit.
     If audit has never run on this dataset, it runs the initial audit automatically.
     """
+    if compact:
+        return get_dataset_qc_summary(db, dataset_id)
     if not force_refresh:
         with _CACHE_LOCK:
             if dataset_id in _REPORT_CACHE:

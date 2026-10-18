@@ -7,7 +7,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.orm import Session, selectinload
 from app.database import get_db, UPLOADS
 from app.models import Dataset, Sample, Annotation, Prediction, QCIssue, Settings, IssueReviewEvent
@@ -80,7 +80,10 @@ def review_history(sample_id: int, db: Session = Depends(get_db)):
 
 @router.get('/datasets')
 def datasets(db: Session = Depends(get_db)):
-    return [dataset_dict(d) for d in db.scalars(select(Dataset).order_by(Dataset.id.desc()))]
+    query = select(Dataset).order_by(Dataset.id.desc()).options(
+        selectinload(Dataset.samples).selectinload(Sample.annotations)
+    )
+    return [dataset_dict(d) for d in db.scalars(query)]
 
 @router.post('/datasets/upload')
 async def upload(
@@ -124,6 +127,9 @@ def get_dataset(id: int, db: Session = Depends(get_db)):
 @router.delete('/datasets/{id}')
 def delete_dataset(id: int, db: Session = Depends(get_db)):
     dataset = require(db, Dataset, id)
+    from app.models import TrainingJob, ModelCheckpoint
+    if db.scalar(select(TrainingJob.id).where(TrainingJob.dataset_id == id, TrainingJob.active_slot.is_not(None))):
+        raise HTTPException(409, 'Dừng hoặc chờ huấn luyện hoàn tất trước khi xóa dataset.')
     folders = {
         Path(s.media_path).relative_to(UPLOADS).parts[0]
         for s in dataset.samples
@@ -131,6 +137,8 @@ def delete_dataset(id: int, db: Session = Depends(get_db)):
     }
     if dataset.storage_key:
         folders.add(dataset.storage_key)
+    db.execute(delete(ModelCheckpoint).where(ModelCheckpoint.dataset_id == id))
+    db.execute(delete(TrainingJob).where(TrainingJob.dataset_id == id))
     db.delete(dataset)
     db.commit()
     for folder in folders:
@@ -140,7 +148,12 @@ def delete_dataset(id: int, db: Session = Depends(get_db)):
 @router.get('/datasets/{id}/samples')
 def samples(id: int, db: Session = Depends(get_db)):
     ds = require(db, Dataset, id)
-    return [sample_dict(s, dataset=ds) for s in ds.samples]
+    rows = db.scalars(select(Sample).where(Sample.dataset_id == id).options(
+        selectinload(Sample.annotations),
+        selectinload(Sample.predictions),
+        selectinload(Sample.qc_issues),
+    ))
+    return [sample_dict(s, dataset=ds) for s in rows]
 
 @router.get('/samples/{id}')
 def sample_detail(id: int, db: Session = Depends(get_db)):
@@ -506,8 +519,12 @@ async def sync_cvat_annotations_endpoint(
     try:
         result = sync_cvat_dataset_annotations(db, id, content=content)
         return result
+    except (ValueError, ET.ParseError) as e:
+        db.rollback()
+        raise HTTPException(422, str(e))
     except Exception as e:
-        raise HTTPException(500, f"CVAT Sync failed: {str(e)}")
+        db.rollback()
+        raise HTTPException(502, f"CVAT Sync failed: {str(e)}")
 
 @router.post('/datasets/{id}/qc/frame/{sample_id}/cvat-verify', response_model=CVATVerifyFrameResponse)
 def verify_cvat_frame_endpoint(
@@ -527,8 +544,10 @@ def verify_cvat_frame_endpoint(
         result = verify_and_sync_sample_from_cvat(db, sample_id)
         return result
     except ValueError as e:
+        db.rollback()
         raise HTTPException(422, str(e))
     except Exception as e:
+        db.rollback()
         raise HTTPException(502, f"CVAT frame verification failed: {str(e)}")
 
 @router.post('/datasets/{id}/qc/cvat-push', response_model=CVATPushResponse)
@@ -561,20 +580,26 @@ def push_to_cvat_endpoint(
             target_source=target_source
         )
         return result
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(422, str(e))
     except Exception as e:
-        raise HTTPException(500, f"CVAT Push failed: {str(e)}")
+        db.rollback()
+        raise HTTPException(502, f"CVAT Push failed: {str(e)}")
 
 @router.put('/datasets/{id}/cvat-config')
 def update_cvat_config(id: int, body: CVATConfigRequest, db: Session = Depends(get_db)):
     dataset = require(db, Dataset, id)
-    if body.cvat_base_url is not None:
+    if 'cvat_base_url' in body.model_fields_set and body.cvat_base_url is not None:
         dataset.cvat_base_url = body.cvat_base_url
-    if body.cvat_task_id is not None:
+    if 'cvat_task_id' in body.model_fields_set:
+        if dataset.cvat_task_id != body.cvat_task_id and 'cvat_job_id' not in body.model_fields_set:
+            dataset.cvat_job_id = None
         dataset.cvat_task_id = body.cvat_task_id
-    if body.cvat_job_id is not None:
+    if 'cvat_job_id' in body.model_fields_set:
         dataset.cvat_job_id = body.cvat_job_id
-    if body.cvat_token is not None:
-        dataset.cvat_token = body.cvat_token
+    if 'cvat_token' in body.model_fields_set:
+        dataset.cvat_token = body.cvat_token or ''
     db.commit()
     return dataset_dict(dataset)
 

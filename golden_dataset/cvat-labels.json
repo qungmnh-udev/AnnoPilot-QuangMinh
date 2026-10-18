@@ -1,0 +1,492 @@
+[
+  {
+    "name": "pedestrian",
+    "color": "#FF6B6B",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "occlusion_level",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial",
+          "heavy"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "truncation",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "label_certainty",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "needs_review",
+          "clear"
+        ],
+        "default_value": "needs_review"
+      },
+      {
+        "name": "review_note",
+        "input_type": "text",
+        "mutable": true,
+        "values": [
+          ""
+        ],
+        "default_value": ""
+      }
+    ]
+  },
+  {
+    "name": "rider",
+    "color": "#FF9F43",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "occlusion_level",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial",
+          "heavy"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "truncation",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "label_certainty",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "needs_review",
+          "clear"
+        ],
+        "default_value": "needs_review"
+      },
+      {
+        "name": "review_note",
+        "input_type": "text",
+        "mutable": true,
+        "values": [
+          ""
+        ],
+        "default_value": ""
+      }
+    ]
+  },
+  {
+    "name": "car",
+    "color": "#54A0FF",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "occlusion_level",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial",
+          "heavy"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "truncation",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "label_certainty",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "needs_review",
+          "clear"
+        ],
+        "default_value": "needs_review"
+      },
+      {
+        "name": "review_note",
+        "input_type": "text",
+        "mutable": true,
+        "values": [
+          ""
+        ],
+        "default_value": ""
+      }
+    ]
+  },
+  {
+    "name": "truck",
+    "color": "#5F27CD",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "occlusion_level",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial",
+          "heavy"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "truncation",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "label_certainty",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "needs_review",
+          "clear"
+        ],
+        "default_value": "needs_review"
+      },
+      {
+        "name": "review_note",
+        "input_type": "text",
+        "mutable": true,
+        "values": [
+          ""
+        ],
+        "default_value": ""
+      }
+    ]
+  },
+  {
+    "name": "bus",
+    "color": "#00D2D3",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "occlusion_level",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial",
+          "heavy"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "truncation",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "label_certainty",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "needs_review",
+          "clear"
+        ],
+        "default_value": "needs_review"
+      },
+      {
+        "name": "review_note",
+        "input_type": "text",
+        "mutable": true,
+        "values": [
+          ""
+        ],
+        "default_value": ""
+      }
+    ]
+  },
+  {
+    "name": "train",
+    "color": "#576574",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "occlusion_level",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial",
+          "heavy"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "truncation",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "label_certainty",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "needs_review",
+          "clear"
+        ],
+        "default_value": "needs_review"
+      },
+      {
+        "name": "review_note",
+        "input_type": "text",
+        "mutable": true,
+        "values": [
+          ""
+        ],
+        "default_value": ""
+      }
+    ]
+  },
+  {
+    "name": "motorcycle",
+    "color": "#F368E0",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "occlusion_level",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial",
+          "heavy"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "truncation",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "label_certainty",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "needs_review",
+          "clear"
+        ],
+        "default_value": "needs_review"
+      },
+      {
+        "name": "review_note",
+        "input_type": "text",
+        "mutable": true,
+        "values": [
+          ""
+        ],
+        "default_value": ""
+      }
+    ]
+  },
+  {
+    "name": "bicycle",
+    "color": "#10AC84",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "occlusion_level",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial",
+          "heavy"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "truncation",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "label_certainty",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "needs_review",
+          "clear"
+        ],
+        "default_value": "needs_review"
+      },
+      {
+        "name": "review_note",
+        "input_type": "text",
+        "mutable": true,
+        "values": [
+          ""
+        ],
+        "default_value": ""
+      }
+    ]
+  },
+  {
+    "name": "traffic light",
+    "color": "#FECA57",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "occlusion_level",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial",
+          "heavy"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "truncation",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "label_certainty",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "needs_review",
+          "clear"
+        ],
+        "default_value": "needs_review"
+      },
+      {
+        "name": "review_note",
+        "input_type": "text",
+        "mutable": true,
+        "values": [
+          ""
+        ],
+        "default_value": ""
+      }
+    ]
+  },
+  {
+    "name": "traffic sign",
+    "color": "#C8D6E5",
+    "type": "rectangle",
+    "attributes": [
+      {
+        "name": "occlusion_level",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial",
+          "heavy"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "truncation",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "unknown",
+          "none",
+          "partial"
+        ],
+        "default_value": "unknown"
+      },
+      {
+        "name": "label_certainty",
+        "input_type": "select",
+        "mutable": true,
+        "values": [
+          "needs_review",
+          "clear"
+        ],
+        "default_value": "needs_review"
+      },
+      {
+        "name": "review_note",
+        "input_type": "text",
+        "mutable": true,
+        "values": [
+          ""
+        ],
+        "default_value": ""
+      }
+    ]
+  }
+]

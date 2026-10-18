@@ -4,7 +4,7 @@
 
 **Pre-label → annotator sửa trên CVAT → AnnoPilot QC → reviewer xác nhận/sửa → đồng bộ → nghiệm thu.** CVAT giữ annotation chính; AnnoPilot lưu mirror và bằng chứng. Chấp nhận gợi ý trên AnnoPilot cập nhật mirror local; cần push và kiểm tra lại trên CVAT trước nghiệm thu.
 
-Baseline: một lần inference YOLO26n/YOLO26s. Pilot: multi-model cross-verification. WBF phục vụ pre-label; disagreement và candidate không được fusion chọn phục vụ QC. TTA và Quality Gate khóa export chưa triển khai.
+Baseline: một lần inference YOLO26n/YOLO26s. Pilot: multi-model cross-verification. WBF phục vụ pre-label; disagreement và candidate không được fusion chọn phục vụ QC. [Thử nghiệm WBF có Gaussian/độ sáng/blur](wbf-perturbation-experiment.md) có sáu cấu hình đối chiếu chạy riêng; TTA trong queue mặc định và Quality Gate khóa export chưa triển khai.
 
 ## 2. Cài đặt
 
@@ -103,6 +103,8 @@ Mỗi cặp run lưu config, snapshot annotation/prediction/provenance và kết
 
 ## 5. Review, CVAT và nghiệm thu
 
+[Quy trình CVAT hai chiều chi tiết](cvat-data-flow.md): lần đầu export XML kèm ảnh rồi upload; sync chỉ cập nhật nhãn của sample đã có, không tự tải ảnh. Để trống Job ID để dùng Task scope; Job cụ thể phải chứa toàn bộ sample cần sync. Tên ảnh/kích thước được đối chiếu metadata server trước khi đọc/ghi.
+
 - ACCEPTED: reviewer chấp nhận gợi ý, cập nhật mirror; retry cùng quyết định không thêm box lần nữa.
 - REJECTED/FALSE_POSITIVE: ghi lý do, giữ lịch sử evidence.
 - Xác minh đã sửa trên CVAT: dùng live sync; local audit không chứng minh đã sửa trên CVAT.
@@ -112,7 +114,7 @@ Cấu hình URL, Task/Job và token của người dùng; không có token demo 
 
 Push `merged` chỉ bổ sung Missing Object ACCEPTED/RESOLVED nếu chưa có annotation tương ứng. Không thêm PENDING/REJECTED/FALSE_POSITIVE. Push `predictions` ưu tiên fused pre-label, không gửi đồng thời mọi box từng model; annotator vẫn phải review.
 
-Append tránh box trùng chính xác trong `shapes` hiện có; chưa bảo đảm idempotency giữa worker concurrent hoặc box đã được người sửa. Replace ghi đè shapes, giữ tracks/tags lấy từ CVAT; đồng bộ inbound trước khi dùng. Class không mapping được phải sửa, không gán vào label bất kỳ.
+Append tránh box trùng chính xác, chỉ thêm box và không sửa class box cũ; case đổi class do Accept local còn box cũ trên CVAT bị chặn. Replace thay rectangle không xoay của các frame trong dataset, giữ frame ngoài phạm vi, shape khác loại và tags; từ chối round-trip video tracks. Pull nhãn mới nhất trước khi sửa local; không pull đè lên thay đổi local chưa push. Class không mapping được báo lỗi, không gán vào label bất kỳ. WBF thử nhiễu lưu report riêng; push pre-label dùng WBF thông thường trong Prediction của dataset.
 
 Ghi **Nộp → Trả lại → Nộp lại → Chấp nhận**. Trả lại bắt buộc lý do. Số vòng trả lại đếm RETURNED event, không đếm issue/audit. Mỗi dataset giữ một cấu hình nghiệm thu; so baseline/pilot trên hai bản dataset tương đương với cùng tiêu chí, reviewer và quy mô. Đây là quyết định con người ghi nhận, chưa có Quality Gate tự động.
 
@@ -138,4 +140,4 @@ Set-Location ../frontend
 npm.cmd run build
 ```
 
-Synthetic benchmark chỉ kiểm tra phần mềm, không chứng minh recall thật. Queue chưa resume qua restart. TTA, tự động push/issue vào CVAT từng frame và Quality Gate khóa export là bước sau. Chưa có benchmark thực tế chứng minh pilot cải thiện baseline.
+Synthetic benchmark chỉ kiểm tra phần mềm, không chứng minh recall thật. Queue chưa resume qua restart. TTA trong queue mặc định, tự động push/issue vào CVAT từng frame và Quality Gate khóa export là bước sau. Chưa có benchmark thực tế trên Golden chứng minh pilot cải thiện baseline.

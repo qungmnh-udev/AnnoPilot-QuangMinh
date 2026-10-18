@@ -342,7 +342,7 @@ def test_cvat_push_endpoint(client, monkeypatch):
     mock_response = MagicMock()
     mock_response.status = 200
     mock_response.read.side_effect = [
-        json.dumps({'results': [{'id': 202}]}).encode(), # /api/jobs
+        json.dumps({'size': 1, 'frames': [{'name': 'push_frame_01.jpg'}]}).encode(), # task frame metadata; do not auto-select first job
         json.dumps({'results': [{'id': 13, 'name': 'vehicle'}]}).encode(), # /api/labels
         json.dumps({'tracks': [], 'tags': [], 'version': 1}).encode(), # get existing annotations
         json.dumps({'status': 'ok'}).encode(), # put annotations

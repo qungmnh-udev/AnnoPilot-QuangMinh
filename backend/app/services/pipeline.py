@@ -150,7 +150,11 @@ def sample_dict(s, details=False, dataset=None):
         boost = 0.04 * min(len(scores) - 1, 5) if len(scores) > 1 else 0.0
         qc_score = min(1.0, round(max_score + boost, 4))
         qc_severity = 'HIGH' if qc_score >= 0.70 else ('MEDIUM' if qc_score >= 0.45 else 'LOW')
-    preds = getattr(s, 'predictions', [])
+    preds = [p for p in getattr(s, 'predictions', []) if not (p.source_model or '').lower().startswith('yolov8')]
+    inference_states = {k: v for k, v in (s.inference_state or {}).items() if not k.lower().startswith('yolov8')}
+    processing = ('NOT_RUN' if any(v.get('status') == 'STALE' and v.get('active') is not False for v in inference_states.values()) else
+                  'ERROR' if any(v.get('status') == 'ERROR' for v in inference_states.values()) else
+                  'PROCESSED' if preds or inference_states else 'NOT_RUN')
     
     frame_number = getattr(s, 'frame_number', None)
     if frame_number is None:
@@ -176,8 +180,8 @@ def sample_dict(s, details=False, dataset=None):
         height=s.height,
         annotation_count=len(s.annotations),
         prediction_count=len(preds),
-        inference_state=s.inference_state or {},
-        qc_processing_state=('ERROR' if any(v.get('status') == 'ERROR' for v in (s.inference_state or {}).values()) else ('PROCESSED' if preds or s.inference_state else 'NOT_RUN')),
+        inference_state=inference_states,
+        qc_processing_state=processing,
         qc_score=qc_score,
         qc_severity=qc_severity,
         qc_issue_count=len(pending),

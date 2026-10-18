@@ -49,6 +49,14 @@ def initialize_database():
             cols = {col['name'] for col in insp.get_columns('predictions')}
             if 'extra_data' not in cols:
                 connection.execute(text('ALTER TABLE predictions ADD COLUMN extra_data JSON'))
+        if 'training_jobs' in table_names:
+            cols = {col['name'] for col in insp.get_columns('training_jobs')}
+            if 'progress' not in cols:
+                connection.execute(text('ALTER TABLE training_jobs ADD COLUMN progress JSON'))
+        if 'model_checkpoints' in table_names:
+            cols = {col['name'] for col in insp.get_columns('model_checkpoints')}
+            if 'training_images' not in cols:
+                connection.execute(text('ALTER TABLE model_checkpoints ADD COLUMN training_images JSON'))
 
         if 'qc_issues' in table_names:
             cols = {col['name'] for col in insp.get_columns('qc_issues')}

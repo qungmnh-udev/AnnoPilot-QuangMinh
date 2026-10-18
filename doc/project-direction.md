@@ -12,4 +12,4 @@ Golden Benchmark độc lập đo recall Missing Object/Wrong Class, precision/F
 
 Ưu tiên: baseline/benchmark → disagreement QC → đo lường/vòng nghiệm thu → streaming/sync → thực nghiệm pilot. TTA và Quality Gate khóa export thuộc bước mở rộng.
 
-Code hiện có candidate evidence, evaluator với snapshot, lifecycle nghiệm thu và UI tương ứng. Chưa hoàn thành benchmark thật; queue qua restart, push/issue CVAT tự động từng frame và TTA chưa triển khai.
+Code hiện có candidate evidence, evaluator với snapshot, lifecycle nghiệm thu và UI tương ứng. Bổ sung ngày 15/10: thử nghiệm WBF chạy model thật với Gaussian/độ sáng/blur và sáu nhánh đối chứng, tách khỏi dữ liệu vận hành; xem `wbf-perturbation-experiment.md`. Chưa hoàn thành benchmark chất lượng trên Golden thật; queue qua restart, push/issue CVAT tự động từng frame và TTA trong queue mặc định chưa triển khai.

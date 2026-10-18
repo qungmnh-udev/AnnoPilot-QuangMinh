@@ -244,15 +244,12 @@ export default function App() {
   async function load(id = active) {
     setDatasetStatus("loading");
     try {
-      const ds = await api<Dataset[]>("/datasets");
+      const [ds, config] = await Promise.all([
+        api<Dataset[]>("/datasets"),
+        api<Settings>("/settings").catch(() => null),
+      ]);
       const selected =
         id && ds.some((d) => d.id === id) ? id : ds[0]?.id || null;
-      let config: Settings | null = null;
-      try {
-        config = await api<Settings>("/settings");
-      } catch {
-        // Settings are optional
-      }
       if (selected) {
         const s = await api<Sample[]>(`/datasets/${selected}/samples`);
         setSamples(s);

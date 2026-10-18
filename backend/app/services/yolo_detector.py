@@ -18,7 +18,10 @@ def resolve_yolo_model(model_name=None):
 
 
 def get_yolo_weights_path(model_name=None):
-    return MODEL_DIR / f'{resolve_yolo_model(model_name)}.pt'
+    from app.services.model_registry import active_checkpoint
+    selected = resolve_yolo_model(model_name)
+    checkpoint = active_checkpoint(selected)
+    return Path(checkpoint['path']) if checkpoint else MODEL_DIR / f'{selected}.pt'
 
 
 def activate_yolo_state(previous, model, state):
@@ -55,6 +58,7 @@ def load_yolo(model_name=None, weights_path=None):
     key = (str(path.resolve()), path.stat().st_mtime_ns)
     with _LOCK:
         if key not in _MODELS:
+            _MODELS.clear()
             _MODELS[key] = YOLO(str(path))
         return _MODELS[key]
 

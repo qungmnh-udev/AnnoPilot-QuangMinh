@@ -128,3 +128,30 @@ class IssueReviewEvent(Base):
     reviewer_note = Column(String, default='')
     evidence_snapshot = Column(JSON, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class TrainingJob(Base):
+    __tablename__ = 'training_jobs'
+    id = Column(String, primary_key=True)
+    dataset_id = Column(Integer, ForeignKey('datasets.id'), nullable=False)
+    model_name = Column(String, nullable=False)
+    status = Column(String, nullable=False, default='QUEUED')
+    # A unique occupied slot serializes training across API processes/restarts.
+    active_slot = Column(String, nullable=True, unique=True)
+    config = Column(JSON, nullable=False)
+    progress = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class ModelCheckpoint(Base):
+    __tablename__ = 'model_checkpoints'
+    id = Column(Integer, primary_key=True)
+    dataset_id = Column(Integer, ForeignKey('datasets.id'), nullable=False)
+    job_id = Column(String, ForeignKey('training_jobs.id'), nullable=False, unique=True)
+    model_name = Column(String, nullable=False)
+    path = Column(String, nullable=False)
+    sha256 = Column(String, nullable=False)
+    active = Column(Boolean, nullable=False, default=True)
+    metrics = Column(JSON, default=dict)
+    training_images = Column(JSON, default=list)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

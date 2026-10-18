@@ -20,3 +20,17 @@ backend/tests/ui_fixture/exports/
 *.tsbuildinfo
 backend/.runtime/
 backend/models/yolo26*.pt
+backend/models/*.pt
+backend/models/*.onnx
+training-jobs/
+backend/Ultralytics/
+training/runs/
+training/dataset/
+.runtime/training-*/
+.runtime/wbf-experiments/
+.runtime/build-wbf-*/
+.runtime/pytest-wbf-*/
+.runtime/ultralytics/
+.runtime/wbf-api-smoke-*/
+.runtime/pytest-cvat-*/
+.runtime/build-cvat-*/

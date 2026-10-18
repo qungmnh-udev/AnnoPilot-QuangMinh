@@ -5,7 +5,7 @@ Implements Weighted Box Fusion (WBF) to combine predictions from multiple
 object detection models into high-quality consensus pre-labels.
 
 Architecture:
-  Model A (e.g. YOLOv8x)   ──┐
+  Model A (e.g. YOLO26n)   ──┐
                                ├─→ WBF Fusion → Tri-Tier Classification
   Model B (e.g. RT-DETR)    ──┘
 
@@ -371,6 +371,8 @@ def run_ensemble_from_existing_predictions(
         all_preds.extend(sample.predictions)
 
     use_active = model_names is None
+    if model_names and any(m.lower().startswith('yolov8') for m in model_names):
+        raise ValueError('YOLOv8 đã ngừng hỗ trợ. Chọn YOLO26 để chạy ensemble.')
     if use_active:
         model_names = sorted({model for sample in dataset.samples for model in active_prediction_model_names(sample)
                               if not model.startswith('synthetic')})
@@ -387,6 +389,8 @@ def run_ensemble_from_existing_predictions(
     models_data: Dict[str, Dict[str, List[DetectionBox]]] = {m: {} for m in model_names}
 
     for sample in dataset.samples:
+        if any((sample.inference_state or {}).get(m, {}).get('status') == 'STALE' for m in model_names):
+            raise ValueError('Checkpoint đã thay đổi. Chạy lại inference trước khi hợp nhất prediction cũ.')
         active = active_prediction_model_names(sample) if use_active else model_names
         for pred in sample.predictions:
             if pred.source_model not in models_data or pred.source_model not in active:
@@ -446,6 +450,7 @@ def get_dataset_prediction_models(db: Session, dataset_id: int) -> Dict[str, Any
     for sample in dataset.samples:
         for model in (sample.inference_state or {}):
             counts.setdefault(model, 0)
+    counts = {model: count for model, count in counts.items() if not model.lower().startswith('yolov8')}
     models = sorted(counts.keys())
     has_ensemble = any(m.startswith("ensemble_") for m in models)
 

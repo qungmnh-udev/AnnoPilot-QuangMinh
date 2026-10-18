@@ -31,6 +31,10 @@ def test_merged_push_excludes_unreviewed_false_positive_and_duplicate_accepted_b
     db_session.commit()
     pushed = []
     def urlopen(request, **kwargs):
+        if request.full_url.endswith('/api/jobs/1'):
+            return Response({'task_id': 1, 'start_frame': 0, 'stop_frame': 0})
+        if request.full_url.endswith('/data/meta'):
+            return Response({'size': 1, 'frames': [{'name': 'frame_000000.jpg'}]})
         if '/api/labels?' in request.full_url:
             return Response({'results': [{'id': 7, 'name': 'car'}]})
         if request.get_method() == 'GET':
@@ -52,6 +56,10 @@ def test_append_retry_does_not_resend_existing_shape(db_session, monkeypatch):
     db_session.commit()
     def urlopen(request, **kwargs):
         assert request.get_method() == 'GET'
+        if request.full_url.endswith('/api/jobs/1'):
+            return Response({'task_id': 1, 'start_frame': 0, 'stop_frame': 0})
+        if request.full_url.endswith('/data/meta'):
+            return Response({'size': 1, 'frames': [{'name': 'frame_000000.jpg'}]})
         if '/api/labels?' in request.full_url:
             return Response({'results': [{'id': 7, 'name': 'car'}]})
         return Response({'shapes': [{'type': 'rectangle', 'frame': 0, 'label_id': 7, 'points': [10., 10., 90., 90.]}]})
@@ -80,6 +88,8 @@ def test_live_rectangle_track_is_interpolated_between_keyframes(db_session, monk
     db_session.add(Sample(dataset_id=dataset.id, file_name='frame_000001.jpg', frame_number=1, task_type='BBOX_2D'))
     db_session.commit()
     def urlopen(request, **kwargs):
+        if request.full_url.endswith('/data/meta'):
+            return Response({'size': 3, 'frames': [{'name': 'video.mp4'}]})
         if '/api/labels?' in request.full_url:
             return Response({'results': [{'id': 7, 'name': 'car'}]})
         return Response({'tracks': [{'id': 3, 'label_id': 7, 'shapes': [

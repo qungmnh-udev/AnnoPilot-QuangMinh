@@ -152,7 +152,7 @@ def detect_sample_qc_issues(
     grounding QC in consolidated consensus.
     """
     cfg = config or QCConfig()
-
+    predictions = [p for p in predictions if not (p.source_model or '').lower().startswith('yolov8')]
     if cfg.strategy == 'multi_model':
         from app.services.cross_verification import cross_verify
         verified = cross_verify(sample_id, annotations, predictions, cfg)
@@ -289,8 +289,6 @@ def compute_sample_qc_score(issues: List[Any]) -> Tuple[float, str]:
 
 # --- Single Image Detector Service ---
 
-_DETECTOR_CACHE: Dict[str, Any] = {}
-
 def get_best_model_path(model_name=None):
     return get_yolo_weights_path(model_name)
 
@@ -313,89 +311,9 @@ def detect_image_objects(
     if not target_model_path or not target_model_path.is_file():
         raise RuntimeError('Detector checkpoint is unavailable')
 
-    model_key = str(target_model_path.resolve())
-
-    if target_model_path.suffix.lower() == '.pt':
-        return predict_yolo(image_path, conf_thresh, model_name=model_name, weights_path=target_model_path)
-    if target_model_path.stem.startswith('yolo26'):
-        raise ValueError('Use YOLO26 .pt checkpoints; the legacy ONNX decoder is incompatible with NMS-free output')
-
-    # Fallback to OpenCV DNN for ONNX models
-    if target_model_path.suffix.lower() == '.onnx':
-        try:
-            import cv2
-            import numpy as np
-
-            if model_key not in _DETECTOR_CACHE:
-                _DETECTOR_CACHE[model_key] = cv2.dnn.readNetFromONNX(model_key)
-            net = _DETECTOR_CACHE[model_key]
-
-            img = cv2.imread(str(img_p))
-            if img is None:
-                raise RuntimeError('Image cannot be decoded')
-            h, w = img.shape[:2]
-            blob = cv2.dnn.blobFromImage(img, 1 / 255.0, (640, 640), swapRB=True, crop=False)
-            net.setInput(blob)
-            out = net.forward()[0]
-
-            boxes = []
-            confidences = []
-            class_ids = []
-            cx = out[0]
-            cy = out[1]
-            bw = out[2]
-            bh = out[3]
-
-            num_classes = out.shape[0] - 4
-            if num_classes > 1:
-                class_scores = out[4:]
-                best_class = np.argmax(class_scores, axis=0)
-                best_conf = np.max(class_scores, axis=0)
-            else:
-                best_conf = out[4]
-                best_class = np.zeros(len(best_conf), dtype=int)
-
-            mask = best_conf >= conf_thresh
-            for i in np.where(mask)[0]:
-                score = float(best_conf[i])
-                c_id = int(best_class[i])
-                box_x1 = max(0.0, float((cx[i] - bw[i] / 2) * (w / 640.0)))
-                box_y1 = max(0.0, float((cy[i] - bh[i] / 2) * (h / 640.0)))
-                box_x2 = min(float(w), float((cx[i] + bw[i] / 2) * (w / 640.0)))
-                box_y2 = min(float(h), float((cy[i] + bh[i] / 2) * (h / 640.0)))
-                boxes.append([int(box_x1), int(box_y1), int(box_x2 - box_x1), int(box_y2 - box_y1)])
-                confidences.append(score)
-                class_ids.append(c_id)
-
-            indices = cv2.dnn.NMSBoxes(boxes, confidences, conf_thresh, 0.45)
-            output_boxes = []
-            bdd_classes = {0: 'pedestrian', 1: 'rider', 2: 'car', 3: 'truck', 4: 'bus', 5: 'train', 6: 'motorcycle', 7: 'bicycle', 8: 'traffic light', 9: 'traffic sign'}
-
-            if len(indices) > 0:
-                for idx in indices.flatten():
-                    b = boxes[idx]
-                    cid = class_ids[idx]
-                    coco_classes = {0: 'pedestrian', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 5: 'bus', 6: 'train', 7: 'truck', 9: 'traffic light', 11: 'traffic sign'}
-                    if num_classes not in (10, 80):
-                        raise RuntimeError('Unsupported ONNX class taxonomy')
-                    label = (bdd_classes if num_classes == 10 else coco_classes).get(cid)
-                    if label is None:
-                        continue
-                    output_boxes.append({
-                        "label": label,
-                        "confidence": round(confidences[idx], 3),
-                        "geometry": {
-                            "x1": float(b[0]),
-                            "y1": float(b[1]),
-                            "x2": float(b[0] + b[2]),
-                            "y2": float(b[1] + b[3])
-                        }
-                    })
-            return output_boxes
-        except Exception as exc:
-            raise RuntimeError(f'ONNX inference failed: {exc}') from exc
-
-    raise RuntimeError('Unsupported detector checkpoint format')
+    if target_model_path.suffix.lower() != '.pt':
+        raise ValueError('QC chỉ hỗ trợ checkpoint YOLO26 .pt; ONNX cũ đã được loại bỏ.')
+    return predict_yolo(image_path, conf_thresh, model_name=model_name, weights_path=target_model_path)
 
 # --- Single Frame Audit (Priority P0: Incremental Processing) ---
 
@@ -426,7 +344,12 @@ def audit_single_frame(
     if run_detector and sample.media_path and os.path.isfile(sample.media_path):
         started_inference = time.perf_counter()
         try:
-            detected_boxes = detect_image_objects(sample.media_path, conf_thresh=conf_thresh, model_name=selected_yolo)
+            from app.services.model_registry import checkpoint_scope, active_checkpoint
+            with checkpoint_scope(sample.dataset_id):
+                checkpoint_path = get_best_model_path(selected_yolo)
+                trained = active_checkpoint(selected_yolo)
+                detected_boxes = detect_image_objects(sample.media_path, conf_thresh=conf_thresh,
+                                                      model_name=selected_yolo, model_path=checkpoint_path)
         except Exception as exc:
             sample.inference_state = activate_yolo_state(sample.inference_state, source_model, {'status': 'ERROR', 'error': str(exc)})
             db.commit()
@@ -434,7 +357,7 @@ def audit_single_frame(
             raise
         elapsed_inference = time.perf_counter() - started_inference
         from app.services.provenance import detector_provenance
-        sample.inference_state = activate_yolo_state(sample.inference_state, source_model, {**detector_provenance(get_best_model_path(selected_yolo)), 'status': 'SUCCESS', 'device': inference_device(), 'imgsz': 640, 'inference_seconds': elapsed_inference, 'conf_thresh': conf_thresh, 'completed_at': datetime.now(timezone.utc).isoformat()})
+        sample.inference_state = activate_yolo_state(sample.inference_state, source_model, {**detector_provenance(checkpoint_path), 'training_job_id': trained['job_id'] if trained else None, 'status': 'SUCCESS', 'device': inference_device(), 'imgsz': 640, 'inference_seconds': elapsed_inference, 'conf_thresh': conf_thresh, 'completed_at': datetime.now(timezone.utc).isoformat()})
         db.execute(delete(Prediction).where(Prediction.sample_id == sample.id, Prediction.source_model.startswith('ensemble_')))
         # Clear existing predictions from same source model
         db.execute(delete(Prediction).where(
@@ -599,28 +522,32 @@ def audit_single_frame(
     }
 
 def processing_state(sample):
-    states = sample.inference_state or {}
+    states = {name: state for name, state in (sample.inference_state or {}).items() if not name.lower().startswith('yolov8')}
+    if any(v.get('status') == 'STALE' and v.get('active') is not False for v in states.values()):
+        return 'NOT_RUN'
     if any(v.get('status') == 'ERROR' for v in states.values()):
         return 'ERROR'
-    return 'PROCESSED' if sample.predictions or states else 'NOT_RUN'
+    return 'PROCESSED' if any(not (p.source_model or '').lower().startswith('yolov8') for p in sample.predictions) or states else 'NOT_RUN'
 
 
 def active_prediction_model_names(sample):
     states = sample.inference_state or {}
-    inactive = {name for name, state in states.items() if state.get('active') is False}
+    inactive = {name for name, state in states.items() if state.get('active') is False or state.get('status') == 'STALE'}
     names = {p.source_model for p in sample.predictions if p.source_model and not p.source_model.startswith('ensemble_')}
     names.update(name for name in states if not name.startswith('ensemble_'))
     real = {name for name in names if not name.startswith('synthetic')}
     if real:
         names = real
-    if any(name.startswith('yolo26') and name not in inactive for name in names):
-        inactive.update(name for name in names if name.startswith('yolov8'))
+    inactive.update(name for name in names if name.lower().startswith('yolov8'))
     return sorted(names - inactive)
 
 
 def has_yolo_predictions(sample, model_name):
     state = (sample.inference_state or {}).get(model_name, {})
-    if state.get('active') is False or state.get('status') == 'ERROR':
+    if state.get('active') is False or state.get('status') in ('ERROR', 'STALE'):
+        return False
+    from app.services.model_registry import checkpoint_identity_matches
+    if not checkpoint_identity_matches(state, model_name, sample.dataset_id):
         return False
     return any(p.source_model == model_name for p in sample.predictions) or state.get('status') in ('SUCCESS', 'IMPORTED')
 
@@ -1005,30 +932,15 @@ def fetch_annotations_from_cvat_api(
         'Content-Type': 'application/json'
     }
 
-    # 1. Fetch labels mapping
-    labels_map = {}
-    target_task_id = task_id
-    if not target_task_id and job_id:
-        try:
-            job_req = urllib.request.Request(f"{base_url}/api/jobs/{job_id}", headers=headers)
-            with urllib.request.urlopen(job_req, timeout=10) as resp:
-                job_data = json.loads(resp.read().decode('utf-8'))
-                target_task_id = job_data.get('task_id')
-        except Exception as exc:
-            raise RuntimeError(f'Cannot fetch CVAT job metadata: {exc}') from exc
-
-    if target_task_id:
-        try:
-            lbl_req = urllib.request.Request(f"{base_url}/api/labels?task_id={target_task_id}", headers=headers)
-            with urllib.request.urlopen(lbl_req, timeout=10) as resp:
-                lbl_data = json.loads(resp.read().decode('utf-8'))
-                results = lbl_data.get('results', lbl_data) if isinstance(lbl_data, dict) else lbl_data
-                labels_map = {item['id']: item['name'] for item in results}
-        except Exception as exc:
-            raise RuntimeError(f'Cannot fetch CVAT class mapping: {exc}') from exc
+    from app.services.cvat_api import CVATClient, CVATFrames
+    client = CVATClient(base_url, pat, task_id, job_id)
+    mapping = client.frame_mapping(dataset.samples)
+    labels = client.labels()
+    labels_map = {label['id']: label['name'] for label in labels}
+    attribute_names = {a['id']: a['name'] for label in labels for a in label.get('attributes', [])}
 
     # 2. Fetch annotations
-    endpoint = f"{base_url}/api/jobs/{job_id}/annotations" if job_id else f"{base_url}/api/tasks/{task_id}/annotations"
+    endpoint = client.endpoint
     try:
         ann_req = urllib.request.Request(endpoint, headers=headers)
         with urllib.request.urlopen(ann_req, timeout=20) as resp:
@@ -1036,7 +948,8 @@ def fetch_annotations_from_cvat_api(
     except Exception as e:
         raise RuntimeError(f'CVAT annotation fetch failed: {e}') from e
 
-    frames_ann: Dict[int, List[Dict[str, Any]]] = {}
+    frames_ann = CVATFrames(mapping)
+    frames_ann.task_id = client.task_id
 
     if any(shape.get('type') != 'rectangle' or shape.get('rotation', 0)
            for shape in ann_data.get('shapes', []) if not shape.get('outside')):
@@ -1057,10 +970,11 @@ def fetch_annotations_from_cvat_api(
                 'geometry': {'x1': float(pts[0]), 'y1': float(pts[1]), 'x2': float(pts[2]), 'y2': float(pts[3])},
                 'shape_type': 'BBOX_2D',
                 'occluded': bool(s.get('occluded', False)),
-                'attributes': s.get('attributes', [])
+                'attributes': {attribute_names.get(a['spec_id'], f"cvat_spec_{a['spec_id']}"): a['value'] for a in s.get('attributes', [])},
+                'source_metadata': {'cvat_shape_id': s.get('id'), 'cvat_attributes': s.get('attributes', [])}
             })
 
-    target_frames = sorted({sample.frame_number if sample.frame_number is not None else extract_frame_number(sample.file_name, sample.id - 1) for sample in dataset.samples})
+    target_frames = sorted(set(mapping.values()))
     for tr in ann_data.get('tracks', []):
         label = labels_map.get(tr.get('label_id'))
         if label is None:
@@ -1103,11 +1017,19 @@ def sync_cvat_dataset_annotations(
 
     parsed_samples = []
 
+    if file_path is not None and not Path(file_path).is_file():
+        raise ValueError('Annotation snapshot file does not exist')
     # 1. If raw content or file provided, parse it
-    if content:
+    parser = None
+    live_sync = content is None and file_path is None
+    if content is not None:
         import tempfile
         is_bytes = isinstance(content, bytes)
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xml' if ('<?xml' in str(content[:100])) else '.json') as tmp:
+        if not content:
+            raise ValueError('Annotation file is empty; select CVAT images XML or BDD100K JSON')
+        from app.database import UPLOADS
+        prefix = content.decode('utf-8-sig') if is_bytes else content.lstrip('\ufeff')
+        with tempfile.NamedTemporaryFile(delete=False, dir=UPLOADS, suffix='.xml' if prefix.lstrip().startswith('<') else '.json') as tmp:
             if is_bytes:
                 tmp.write(content)
             else:
@@ -1126,47 +1048,48 @@ def sync_cvat_dataset_annotations(
     elif file_path and Path(file_path).is_file():
         fp = Path(file_path)
         if fp.suffix.lower() == '.xml':
-            parsed_samples = CVATParser().parse([fp], [])
+            parser = CVATParser()
+            parsed_samples = parser.parse([fp], [])
         else:
-            parsed_samples = BDD100KParser().parse([fp], [])
+            parser = BDD100KParser()
+            parsed_samples = parser.parse([fp], [])
     else:
         # 2. Prioritize fetching live annotations directly from CVAT REST API (The System of Record)
         cvat_frames = fetch_annotations_from_cvat_api(dataset)
         if cvat_frames is None:
             raise RuntimeError('Configure CVAT Task/Job and provide a token, or upload the current annotation export')
+        dataset.cvat_task_id = getattr(cvat_frames, 'task_id', dataset.cvat_task_id)
         for sample in dataset.samples:
-            frame_num = sample.frame_number if sample.frame_number is not None else extract_frame_number(sample.file_name, sample.id - 1)
+            frame_num = getattr(cvat_frames, 'frame_by_sample', {}).get(sample.id, sample.frame_number)
             parsed_samples.append({'file_name': sample.file_name, 'frame_number': frame_num,
                                    'annotations': cvat_frames.get(frame_num, [])})
 
     if not parsed_samples:
-        return {
-            'status': 'no_data',
-            'message': 'Không tìm thấy dữ liệu annotation hợp lệ từ CVAT để đồng bộ',
-            'dataset_id': dataset_id,
-            'updated_frames_count': 0,
-            'auto_resolved_issues_count': 0,
-            'remaining_issues_count': 0,
-            'synced_at': datetime.now(timezone.utc).isoformat()
-        }
+        raise ValueError('No frame records in annotation snapshot; empty frames must be explicitly included')
 
-    # Map database samples by file_name and frame_number
+    if parser is not None:
+        if parser.warnings:
+            raise ValueError('Sync rejected incomplete/unsupported annotation export: ' + '; '.join(parser.warnings[:3]))
+        if getattr(parser, 'cvat_task_id', None) and dataset.cvat_task_id and parser.cvat_task_id != dataset.cvat_task_id:
+            raise ValueError('Annotation export belongs to a different CVAT task')
+    # File sync matches image names, never an unrelated image with the same integer ID.
     sample_by_name = {s.file_name: s for s in dataset.samples}
-    sample_by_frame = {s.frame_number: s for s in dataset.samples if s.frame_number is not None}
+    matched_items = [(sample_by_name[item['file_name']], item) for item in parsed_samples if item['file_name'] in sample_by_name]
+    if not matched_items:
+        raise ValueError('No exported image names match this dataset; sync does not import new frames or media')
+    if len({s.id for s, _ in matched_items}) != len(matched_items):
+        raise ValueError('Duplicate images in annotation export')
+    for sample, item in matched_items:
+        for annotation in item.get('annotations', []):
+            if annotation.get('shape_type', 'BBOX_2D') != 'BBOX_2D' or float(annotation.get('source_metadata', {}).get('rotation', 0)):
+                raise ValueError('QC sync supports unrotated bounding boxes only')
 
     updated_frames = 0
     auto_resolved = 0
 
-    for item in parsed_samples:
-        fname = item['file_name']
-        sample = sample_by_name.get(fname)
-        if not sample:
-            frame_num = item.get('frame_number')
-            if frame_num is not None:
-                sample = sample_by_frame.get(frame_num)
-
-        if not sample:
-            continue
+    for sample, item in matched_items:
+        if item.get('frame_number') is not None:
+            sample.frame_number = item['frame_number']
 
         # Get existing pending issues before syncing new annotations
         pending_issues = [i for i in sample.qc_issues if i.status == 'PENDING']
@@ -1181,13 +1104,13 @@ def sync_cvat_dataset_annotations(
                 geometry=ann_data['geometry'],
                 attributes=ann_data.get('attributes', {}),
                 occluded=ann_data.get('occluded'),
-                source_metadata={'origin': 'cvat_sync'}
+                source_metadata={**ann_data.get('source_metadata', {}), 'origin': 'cvat_live_sync' if live_sync else 'cvat_file_sync'}
             )
             db.add(db_ann)
         db.flush()
 
         db.expire(sample, ['annotations'])
-        auto_resolved += resolve_verified_issues(db, sample, 'Verified against synchronized CVAT annotation')
+        auto_resolved += resolve_verified_issues(db, sample, 'Verified against live CVAT annotation' if live_sync else 'Matched uploaded annotation snapshot (not live CVAT verification)')
         audit_single_frame(db, sample.id, run_detector=False, commit=False)
         updated_frames += 1
 
@@ -1202,7 +1125,7 @@ def sync_cvat_dataset_annotations(
 
     return {
         'status': 'success',
-        'message': f'Đồng bộ thành công từ CVAT: cập nhật {updated_frames} frames, tự động xác nhận {auto_resolved} lỗi đã sửa.',
+        'message': f'{"Đồng bộ live từ CVAT" if live_sync else "Nạp snapshot từ file, không xác minh live CVAT"}: cập nhật {updated_frames} frames, đối soát {auto_resolved} cảnh báo.',
         'dataset_id': dataset_id,
         'updated_frames_count': updated_frames,
         'auto_resolved_issues_count': auto_resolved,
@@ -1236,12 +1159,16 @@ def verify_and_sync_sample_from_cvat(db, sample_id, config=None):
     frames = fetch_annotations_from_cvat_api(sample.dataset)
     if frames is None:
         raise ValueError('CVAT Task/Job is not configured')
-    target = sample.frame_number if sample.frame_number is not None else extract_frame_number(sample.file_name, sample.id - 1)
+    target = getattr(frames, 'frame_by_sample', {}).get(sample.id, sample.frame_number)
+    if target is None:
+        raise ValueError('CVAT frame mapping is unavailable')
+    sample.dataset.cvat_task_id = getattr(frames, 'task_id', sample.dataset.cvat_task_id)
+    sample.frame_number = target
     db.execute(delete(Annotation).where(Annotation.sample_id == sample.id))
     for ann in frames.get(target, []):
         db.add(Annotation(sample_id=sample.id, label=ann['label'], shape_type='BBOX_2D',
                           geometry=ann['geometry'], attributes=ann.get('attributes', {}),
-                          occluded=ann.get('occluded'), source_metadata={'origin': 'cvat_live_sync'}))
+                          occluded=ann.get('occluded'), source_metadata={**ann.get('source_metadata', {}), 'origin': 'cvat_live_sync'}))
     db.flush()
     db.expire(sample, ['annotations'])
     resolved = resolve_verified_issues(db, sample, 'Verified against current CVAT annotation')
@@ -1278,6 +1205,8 @@ def push_dataset_annotations_to_cvat(
     if not dataset:
         raise ValueError(f"Dataset #{dataset_id} not found")
 
+    if mode not in ('create', 'replace') or target_source not in ('annotations', 'predictions', 'merged'):
+        raise ValueError('Unsupported CVAT push mode/source')
     base = (cvat_base_url or dataset.cvat_base_url or 'http://localhost:8080').rstrip('/')
     pat = (token or getattr(dataset, 'cvat_token', None) or '').strip()
     task_id = cvat_task_id or dataset.cvat_task_id
@@ -1295,8 +1224,6 @@ def push_dataset_annotations_to_cvat(
         dataset.cvat_task_id = cvat_task_id
     if cvat_job_id:
         dataset.cvat_job_id = cvat_job_id
-    db.commit()
-
     import urllib.request, urllib.error, json, logging
     logger = logging.getLogger(__name__)
 
@@ -1305,45 +1232,13 @@ def push_dataset_annotations_to_cvat(
         'Content-Type': 'application/json'
     }
 
-    # Step 1: If job_id is missing, find job_id from task_id
-    if task_id and not job_id:
-        try:
-            req = urllib.request.Request(f"{base}/api/jobs?task_id={task_id}", headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                jobs_data = json.loads(resp.read().decode('utf-8'))
-                results = jobs_data.get('results', [])
-                if results:
-                    job_id = results[0]['id']
-                    dataset.cvat_job_id = job_id
-                    db.commit()
-        except Exception as e:
-            logger.warning(f"Could not automatically fetch job for task {task_id}: {e}")
-
-    # Step 2: Fetch Task Labels to map label names to CVAT label IDs
-    target_task_id = task_id
-    if not target_task_id and job_id:
-        try:
-            req = urllib.request.Request(f"{base}/api/jobs/{job_id}", headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                jdata = json.loads(resp.read().decode('utf-8'))
-                target_task_id = jdata.get('task_id')
-        except Exception:
-            pass
-
-    label_map: Dict[str, int] = {}
-    default_label_id = None
-    if target_task_id:
-        try:
-            req = urllib.request.Request(f"{base}/api/labels?task_id={target_task_id}", headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                labels_data = json.loads(resp.read().decode('utf-8'))
-                for l in labels_data.get('results', []):
-                    norm = l['name'].strip().lower()
-                    label_map[norm] = l['id']
-                    if default_label_id is None:
-                        default_label_id = l['id']
-        except Exception as e:
-            logger.warning(f"Could not fetch labels for task {target_task_id}: {e}")
+    from app.services.cvat_api import CVATClient
+    client = CVATClient(base, pat, task_id, job_id)
+    frame_mapping = client.frame_mapping(dataset.samples)
+    task_id = client.task_id
+    labels = client.labels()
+    label_map = {label['name'].strip().lower(): label['id'] for label in labels}
+    attribute_specs = {label['id']: {a['name']: a['id'] for a in label.get('attributes', [])} for label in labels}
 
     # Synonym mapping for common driving datasets (e.g. BDD100K to CVAT)
     synonyms = {
@@ -1359,7 +1254,13 @@ def push_dataset_annotations_to_cvat(
         for alias in synonyms.get(c, []):
             if alias in label_map:
                 return label_map[alias]
-        raise ValueError(f"CVAT taxonomy has no matching class for '{raw_label}'")
+        available = ', '.join(sorted(label['name'] for label in labels)) or '(none)'
+        raise ValueError(
+            f"CVAT taxonomy has no matching class for '{raw_label}' in Task #{task_id}. "
+            f"Available CVAT classes: {available}. "
+            f"Add the matching class to the CVAT Task (or its Project), "
+            f"or check that the configured Task/Job is correct."
+        )
 
     # Step 3: Build CVAT rectangle shapes based on target_source
     shapes = []
@@ -1374,16 +1275,14 @@ def push_dataset_annotations_to_cvat(
     ).all()
 
     for sample in samples:
-        frame_idx = sample.frame_number
-        if frame_idx is None:
-            frame_idx = extract_frame_number(sample.file_name, sample.id - 1)
+        frame_idx = frame_mapping[sample.id]
 
         # 1. Human annotations
         if target_source in ('annotations', 'merged'):
             for ann in sample.annotations:
                 shape_upper = (ann.shape_type or '').upper()
                 if shape_upper not in ('BBOX_2D', 'RECTANGLE', 'BBOX', 'BOX', '') or not ann.geometry:
-                    continue
+                    raise ValueError('CVAT push supports bounding boxes only; a mixed/non-BBox local snapshot cannot be round-tripped')
                 lid = resolve_label_id(ann.label)
                 if lid is None:
                     continue
@@ -1400,14 +1299,24 @@ def push_dataset_annotations_to_cvat(
                     'occluded': bool(ann.occluded),
                     'outside': False,
                     'z_order': 0,
-                    'attributes': []
+                    'attributes': [{'spec_id': spec_id, 'value': str((ann.attributes or {})[name])}
+                                   for name, spec_id in attribute_specs.get(lid, {}).items() if name in (ann.attributes or {})]
                 })
 
         # 2. AI Model predictions
         if target_source == 'predictions':
+            active = {m for m in active_prediction_model_names(sample)
+                      if (sample.inference_state or {}).get(m, {}).get('status') != 'ERROR'}
             proposed = [p for p in sample.predictions if (p.source_model or '').startswith('ensemble_')]
+            for pred in proposed:
+                evidence = pred.extra_data or {}
+                sources = set(evidence.get('contributing_models', [])) | set(evidence.get('absent_models', []))
+                if not sources or not sources <= active:
+                    raise ValueError('Stored WBF output has missing/inactive model provenance; run WBF again before pushing pre-labels')
             if not proposed:
-                proposed = sample.predictions
+                proposed = [p for p in sample.predictions if p.source_model in active and not (p.source_model or '').startswith('synthetic')]
+                if len({p.source_model for p in proposed}) > 1:
+                    raise ValueError('Multiple detector sources need WBF before pushing pre-labels; do not send every model box together')
             for pred in proposed:
                 if not pred.geometry:
                     continue
@@ -1458,6 +1367,10 @@ def push_dataset_annotations_to_cvat(
     for shape in shapes:
         unique_shapes[(shape['frame'], shape['label_id'], tuple(shape['points']))] = shape
     shapes = list(unique_shapes.values())
+    for shape in shapes:
+        x1, y1, x2, y2 = shape['points']
+        if not all(math.isfinite(v) and v >= 0 for v in shape['points']) or x2 <= x1 or y2 <= y1:
+            raise ValueError('Invalid bounding box coordinates for CVAT push')
     if mode == 'create' and shapes:
         req = urllib.request.Request(f"{base}/api/jobs/{job_id}/annotations" if job_id else f"{base}/api/tasks/{task_id}/annotations", headers=headers)
         try:
@@ -1465,9 +1378,25 @@ def push_dataset_annotations_to_cvat(
                 current = json.loads(response.read().decode('utf-8'))
             existing_keys = {(s['frame'], s['label_id'], tuple(round(float(v), 1) for v in s.get('points', []))) for s in current.get('shapes', []) if s.get('type') == 'rectangle'}
             shapes = [s for s in shapes if (s['frame'], s['label_id'], tuple(s['points'])) not in existing_keys]
+            for sample in samples:
+                if target_source not in ('annotations', 'merged'):
+                    continue
+                for annotation in sample.annotations:
+                    previous = (annotation.attributes or {}).get('previous_label')
+                    if previous and normalize_label(previous) != normalize_label(annotation.label):
+                        old_id = resolve_label_id(previous)
+                        coords = tuple(round(float(annotation.geometry[k]), 1) for k in ('x1', 'y1', 'x2', 'y2'))
+                        if (frame_mapping[sample.id], old_id, coords) in existing_keys:
+                            raise ValueError('Append cannot replace a wrong-class box. Edit/Save in CVAT then sync back, or use Replace after checking the current annotations')
+        except ValueError:
+            raise
         except Exception as exc:
             raise RuntimeError(f'Cannot verify existing CVAT shapes before append: {exc}') from exc
-    if not shapes:
+    if not shapes and mode == 'create':
+        for sample in samples:
+            sample.frame_number = frame_mapping[sample.id]
+        dataset.cvat_task_id = task_id
+        db.commit()
         return {
             'status': 'warning',
             'message': 'Không có bounding box nào cần đồng bộ.',
@@ -1495,8 +1424,13 @@ def push_dataset_annotations_to_cvat(
             except Exception as exc:
                 raise RuntimeError(f'Cannot fetch existing CVAT tracks/tags before replace: {exc}') from exc
 
+            if existing_tracks:
+                raise ValueError('Replace cannot round-trip interpolated video tracks; edit tracks in CVAT and sync inbound')
+            selected_frames = set(frame_mapping.values())
+            preserved_shapes = [s for s in existing.get('shapes', [])
+                                if s.get('frame') not in selected_frames or s.get('type') != 'rectangle' or s.get('rotation', 0)]
             payload = {
-                'shapes': shapes,
+                'shapes': preserved_shapes + shapes,
                 'tracks': existing_tracks,
                 'tags': existing_tags,
                 'version': existing_version
@@ -1512,12 +1446,18 @@ def push_dataset_annotations_to_cvat(
             with urllib.request.urlopen(patch_req, timeout=60) as patch_resp:
                 res_code = patch_resp.status
 
+    except ValueError:
+        raise
     except urllib.error.HTTPError as e:
         err_msg = e.read().decode('utf-8', errors='ignore')
         raise RuntimeError(f"CVAT API Error {e.code}: {err_msg}")
     except Exception as e:
         raise RuntimeError(f"Lỗi kết nối tới CVAT ({base}): {str(e)}")
 
+    for sample in samples:
+        sample.frame_number = frame_mapping[sample.id]
+    dataset.cvat_task_id = task_id
+    db.commit()
     cvat_url = f"{base}/tasks/{task_id}/jobs/{job_id}" if job_id else f"{base}/tasks/{task_id}"
 
     source_labels = {
@@ -1548,6 +1488,8 @@ def ingest_predictions_data(
     source_model: str = 'pretrained'
 ) -> int:
     """Ingest model predictions from list of dicts."""
+    if source_model.lower().startswith('yolov8'):
+        raise ValueError('YOLOv8 đã ngừng hỗ trợ. Dùng YOLO26 hoặc model độc lập khác.')
     dataset = db.get(Dataset, dataset_id)
     if not dataset:
         raise ValueError('Dataset not found')

@@ -3313,3 +3313,37 @@ pre {
 .qc-evaluation-controls label:has(input[type="checkbox"]) { flex-direction: row; align-items: center; }
 .qc-evaluation-panel input, .qc-evaluation-panel select { max-width: 100%; }
 .qc-model-evidence { padding: .75rem; overflow-wrap: anywhere; }
+.training-panel { margin: 1rem 0; }
+.training-panel > summary { display: flex; align-items: center; gap: .65rem; cursor: pointer; padding: 1rem; }
+.training-panel > summary > .muted { margin-left: auto; font-size: .82rem; }
+.training-content { padding: 0 1.25rem 1.25rem; }
+.training-content > p { line-height: 1.6; }
+.training-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1.25rem 0; }
+.training-overview > div { display: flex; align-items: flex-start; gap: .65rem; padding: .85rem; border: 1px solid var(--border); border-radius: 10px; }
+.training-overview p { font-size: .83rem; color: var(--muted); margin: .4rem 0 0; line-height: 1.5; }
+.training-step { display: grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0; border-radius: 50%; background: rgba(56,189,248,.12); color: #38bdf8; font-weight: 700; }
+.training-readiness { display: flex; align-items: center; gap: .6rem; padding: .8rem 1rem; background: rgba(56,189,248,.07); border-radius: 8px; font-size: .9rem; }
+.training-content fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
+.training-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
+.training-fields label { display: flex; flex-direction: column; gap: .45rem; font-weight: 500; }
+.training-fields select, .training-fields input { width: 100%; }
+.training-check { display: flex; align-items: flex-start; gap: .65rem; margin: 1rem 0; line-height: 1.5; font-size: .9rem; }
+.training-check input { width: auto; margin-top: .25rem; flex-shrink: 0; }
+.training-options { border-top: 1px solid var(--border); padding: .85rem 0; margin-top: .7rem; }
+.training-options > summary, .training-progress details > summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+.training-progress { padding: 1rem; border: 1px solid var(--border); border-radius: 10px; margin-top: 1.2rem; }
+.training-progress.is-complete { border-color: rgba(34,197,94,.4); }
+.training-progress-title { display: flex; align-items: center; gap: .6rem; }
+.training-progress progress { width: 100%; height: 10px; accent-color: #38bdf8; }
+.training-progress-meta { display: flex; flex-wrap: wrap; gap: .5rem 1.2rem; font-size: .8rem; color: var(--muted); margin: .6rem 0 1rem; }
+.training-progress details { margin-top: .8rem; }
+.training-progress pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; }
+.training-checkpoints { list-style: none; padding: 0; }
+.training-checkpoints li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem 0; border-bottom: 1px solid var(--border); font-size: .85rem; }
+.training-checkpoints .badge { margin-left: .6rem; }
+@media (max-width: 720px) { .training-overview, .training-fields { grid-template-columns: 1fr; } .training-panel > summary > .muted { display: none; } .training-checkpoints li { align-items: flex-start; flex-direction: column; } }
+.wbf-experiment-panel { margin: 1rem 0; padding: 1rem; border: 1px solid var(--border); border-radius: 10px; }
+.wbf-experiment-panel fieldset { border: 0; padding: 0; min-width: 0; }
+.wbf-experiment-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem; }
+.wbf-experiment-panel label { display: flex; flex-direction: column; gap: .35rem; margin-bottom: .75rem; }
+.wbf-experiment-panel table { min-width: 850px; }

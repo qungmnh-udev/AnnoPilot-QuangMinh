@@ -79,7 +79,7 @@ def test_cvat_video_tracks_and_meta(tmp_path):
     parser = CVATParser()
     samples = parser.parse([p], [])
     assert parser.cvat_task_id == 42
-    assert parser.cvat_job_id == 99
+    assert parser.cvat_job_id is None  # Segment ID 99 is not a Job ID.
     assert len(samples) == 2
     assert samples[0]['file_name'] == 'frame_000000.PNG'
     assert len(samples[0]['annotations']) == 1
